@@ -4,12 +4,17 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
+numpy = "==2.2.5"
 scikit-learn = "*"
-numpy = "*"
 pandas = "*"
 requests = "*"
+scipy = "*"
+pyts = "*"
+optuna = "*"
+optuna-dashboard = "*"
 
 [dev-packages]
+ipykernel = "*"
 
 [requires]
 python_version = "3.11"
