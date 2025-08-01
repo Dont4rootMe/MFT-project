@@ -57,9 +57,9 @@ class StockSimulator:
         predictions = [] # store binary predictions (1/-1) of strategy
 
         # Trading simulation
-        for i in range(warm_start, len(data_series) - 1):
+        for i in range(len(data_series)):
             # make prediction for next day market tendency
-            pred = model.get_action(data_series.iloc[i])
+            pred = model.get_action()
             predictions.append(pred)
             
             # add current day to model memory
@@ -71,11 +71,10 @@ class StockSimulator:
             # Secondly, we add current observation to model memory
             model.add_observation(observation)
 
-
         # getting whole metrics
         metrics = summarize_performance(
-            predictions,
-            data_series
+            ts=data_series,
+            actions=predictions,
         )
         
         # Store results in simulator_run
