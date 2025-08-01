@@ -2,9 +2,10 @@ from scripts.fetch_currency import fetch_historical_data
 from pathlib import Path
 import pandas as pd
 import os
-from .metrics import summarize_performance
 
 from policy import BasePolicy
+from .metrics import summarize_performance
+from .stock_visualize import plot_candles_finplot
 
 class StockSimulator:
     
@@ -88,6 +89,7 @@ class StockSimulator:
 
     def __init__(self):
         self.simulator_run = {
+            'coin_name': None,
             'final_metrics': None,
             'predictions': None,
             'stock_series': None,
@@ -118,7 +120,9 @@ class StockSimulator:
         Returns:
             dict: Final metrics of the simulation.
         """
-        
+        # Save coin_name of simulator run
+        self.simulator_run['coin_name'] = coin_name
+
         # acquire data
         stock_series = self._acquire_data(
             coin_name=coin_name,
@@ -135,16 +139,39 @@ class StockSimulator:
         )
         
     def get_simulation_results(self):
-        """        Returns:
+        """        
+        Returns:
             dict: The results of the last simulation run.
         """
         return self.simulator_run
-    
-    def visualize_results(self):
+
+    def visualize_results(self, 
+        save_path: str | None = None,
+        start: int | None = None,
+        stop: int | None = None 
+    ):
         """
         Visualizes the results of the last simulation run.
+        
+        Parameters:
+            save_path (str | None): Path to save the visualization. If None, the plot
         
         Returns:
             None: Displays the performance metrics and predictions.
         """
-        raise NotImplementedError("Visualization logic is not implemented yet.")
+        if not self.simulator_run['final_metrics']:
+            raise ValueError("No simulation results available. Run a simulation first.")
+        
+        # Extract data
+        df = self.simulator_run['stock_series']
+        predictions = self.simulator_run['predictions']
+        
+        # Plot the stock candles with predictions
+        plot_candles_finplot(
+            df,
+            predictions=predictions,
+            coin_name=self.simulator_run['coin_name'],
+            start=start,
+            stop=stop,
+            save_path=save_path,
+        )
