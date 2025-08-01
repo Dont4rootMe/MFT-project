@@ -12,6 +12,11 @@ scipy = "*"
 pyts = "*"
 optuna = "*"
 optuna-dashboard = "*"
+kagglehub = "*"
+torch = "*"
+finplot = "*"
+matplotlib = "*"
+mplfinance = "*"
 
 [dev-packages]
 ipykernel = "*"
