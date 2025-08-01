@@ -1,4 +1,4 @@
-from policy import BasePolicy
+from .base_policy import BasePolicy
 import numpy as np
 import pandas as pd
 from scipy.special import softmax
@@ -8,7 +8,12 @@ class KNNPolicy(BasePolicy):
     K-Nearest Neighbors (KNN) trading policy.
     """
 
-    def __init__(self, day_window = 10, k_neighbours = 1, weighted = True): 
+    def __init__(self, 
+        day_window = 10, 
+        k_neighbours = 1, 
+        weighted = True,
+        metric = 'euclidean'
+    ): 
         super().__init__()
 
         # settings of model
@@ -16,6 +21,13 @@ class KNNPolicy(BasePolicy):
         self.k_neighbours = k_neighbours
         self.weighted     = weighted
         
+        if metric == 'euclidean':
+            self.metric = lambda x, y: np.linalg.norm(x - y)
+        elif metric == 'manhattan':
+            self.metric = lambda x, y: np.abs(x - y).sum()
+        else:
+            raise ValueError(f"Unsupported metric: {metric}. Use 'euclidean' or 'manhattan'.")
+
         # model's memory
         self.neighbours   = []
         
@@ -28,7 +40,7 @@ class KNNPolicy(BasePolicy):
 
     def fit_method(self):
         time_series = self.observation_hub.get_observations('all')
-        for idx in range(len(time_series) - self.day_window + 1):
+        for idx in range(len(time_series) - self.day_window):
             # Assuming 'label' is a column in the DataFrame indicating the action
             label = 1 if time_series.iloc[idx + self.day_window]['close'] > time_series.iloc[idx + self.day_window]['open'] else -1
             x = time_series.iloc[idx:idx + self.day_window][['open', 'close']]
