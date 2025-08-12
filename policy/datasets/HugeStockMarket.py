@@ -22,6 +22,9 @@ class HugeStockMarketDataset(Dataset):
         self.dataset_path = Path(dataset_path)
         if not self.dataset_path.exists():
             import kagglehub
+            
+            os.environ["KAGGLEHUB_CACHE"] = str(self.dataset_path.parent)
+            
             # Download latest version
             self.dataset_path = kagglehub.dataset_download("borismarjanovic/price-volume-data-for-all-us-stocks-etfs")
             print("Path to dataset files:", self.dataset_path)
