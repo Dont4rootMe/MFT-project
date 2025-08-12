@@ -166,14 +166,14 @@ class BasePolicy(ABC):
     # ============================================
 
     @abstractmethod
-    def get_action(self, reference: pd.Series | None) -> int:
+    def get_action(self, reference: pd.Series | None = None) -> int:
         """
         Get the action for the next time step.
         Returns
         -------
         int
-            Action to take (e.g., 1 for buy, -1 for sell).
-            
+            Action in {1 (buy), 0 (hold), -1 (sell)}.
+
         reference : pd.Series | None
             The current market observation to base the action on.
         """

@@ -51,15 +51,17 @@ def plot_candles_finplot(
     else:
         prediction_time = None
     
-    # Plot candlesticks
+    # mplfinance expects columns named ['Open','High','Low','Close'] in that order
+    _df_mpf = df_plot.rename(columns={'open':'Open','high':'High','low':'Low','close':'Close'})
+    _df_mpf = _df_mpf[['Open','High','Low','Close']]
     fig, axlist = mpf.plot(
-        df_plot[['open', 'close', 'high', 'low']], 
-        type='candle', 
-        style='charles', 
-        volume=False, 
+        _df_mpf,
+        type='candle',
+        style='charles',
+        volume=False,
         show_nontrading=False,
         returnfig=True,
-    ) 
+    )
     initial_limits = axlist[0].get_xlim()
     
     # Adding title
@@ -98,14 +100,19 @@ def plot_candles_finplot(
             candle = df_plot.loc[date]
             o, c = candle['open'], candle['close']
             
-            # Determine correctness
+            # Determine correctness and color by action
             if pred in [1, 1.0]:
                 correct = c >= o
-            else:  # 0 or -1
+                color = '#00ff00' if correct else '#ff0000'  # green/red
+            elif pred in [-1, -1.0]:
                 correct = c < o
-            
-            # Set highlight color
-            color = '#00ff00' if correct else '#ff0000'  # Green or red
+                color = '#00ff00' if correct else '#ff0000'
+            elif pred in [0, 0.0]:
+                # Neutral (hold): shade with gray, no correctness notion
+                color = '#808080'
+            else:
+                # Unknown value: skip
+                continue
             
             # Shade the full vertical span between x0 and x1 on the same Axes as the mplfinance candles
             axlist[0].axvspan(x0, x1, ymin=0.0, ymax=1.0, facecolor=color, alpha=0.15, zorder=3)

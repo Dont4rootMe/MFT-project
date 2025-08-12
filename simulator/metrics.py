@@ -13,6 +13,7 @@ from typing import Any, Sequence, TypedDict, Dict
 from sklearn.metrics import (
     accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 )
+from collections import Counter
 
 # === TypedDicts for return schemas ===
 class ProfitabilityDict(TypedDict):
@@ -170,22 +171,73 @@ def get_classification_metrics(ts: pd.DataFrame, preds: Sequence[bool]) -> dict:
         'roc_auc': roc_auc_score(y_true, y_pred)
     }
 
-# Backward-compatible alias (original misspelling retained)
-get_classification_metrices = get_classification_metrics
-# === Small helpers for summarize_performance ===
-def _profitability_from_actions(ts: pd.DataFrame, actions: Sequence[float]) -> ProfitabilityDict:
-    """Build cpp/spp metrics from actions ∈ {−1,+1} keeping prior semantics."""
-    cpp_preds = [1.0 if v > 0 else 0.0 for v in actions]
-    cpp_out = complicated_percent_profit(ts, cpp_preds, threshold=0.5)
 
-    spp_preds = [1.0 if v > 0 else 0.0 for v in actions]
-    spp_out = simple_percent_profit(ts, spp_preds, threshold=0.5, compound=True)
+def _classification_from_actions(ts: pd.DataFrame, actions: Sequence[float]) -> Dict[str, float]:
+    """Binary direction metrics on days where |a_t|>0.
+    Ground truth: down day indicator y=(open>close).
+    Prediction: y_hat=1 if a_t<0 (short), 0 if a_t>0 (long). Holds (a_t=0) are excluded.
+    Returns accuracy/precision/recall/F1/ROC-AUC; NaN when undefined.
+    """
+    if not {'open', 'close'}.issubset(ts.columns):
+        raise ValueError("ts must contain 'open' and 'close' columns")
+
+    a = _coerce_actions(actions)
+    mask = np.abs(a) > 0
+    if mask.sum() == 0:
+        return {k: float('nan') for k in ['accuracy','precision','recall','f1','roc_auc']}
+
+    y_true = (ts['open'] > ts['close']).astype(int).to_numpy()[mask]
+    y_pred = (a[mask] < 0).astype(int)
+
+    # Safeguards for degenerate class distributions
+    unique_true = np.unique(y_true)
+    unique_pred = np.unique(y_pred)
+
+    acc = accuracy_score(y_true, y_pred)
+    prec = precision_score(y_true, y_pred, zero_division=0)
+    rec = recall_score(y_true, y_pred, zero_division=0)
+    f1 = f1_score(y_true, y_pred, zero_division=0)
+    if unique_true.size < 2 or unique_pred.size < 2:
+        roc = float('nan')
+    else:
+        try:
+            roc = roc_auc_score(y_true, y_pred)
+        except Exception:
+            roc = float('nan')
 
     return {
-        'cpp': cpp_out['cpp'],
-        'cpp_hyst': list(map(float, cpp_out['cpp_hyst'])),
-        'spp': spp_out['spp'],
-        'spp_hyst': list(map(float, spp_out['spp_hyst'])),
+        'accuracy': float(acc),
+        'precision': float(prec),
+        'recall': float(rec),
+        'f1': float(f1),
+        'roc_auc': float(roc),
+    }
+
+
+# === Small helpers for summarize_performance ===
+def _profitability_from_actions(ts: pd.DataFrame, actions: Sequence[float]) -> ProfitabilityDict:
+    """Build cpp/spp metrics from actions ∈ {−1,0,+1}.
+    cpp: long-only equity where a_t>0 means invested, else flat (cash).
+    spp: long/short/flat equity using a_t directly with r_t=(close-open)/open.
+    """
+    if not {'open', 'close'}.issubset(ts.columns):
+        raise ValueError("ts must contain 'open' and 'close' columns")
+
+    a = _coerce_actions(actions)
+    r = _daily_returns_open_to_close(ts)
+
+    # Long-only equity: participate only on days with a>0
+    a_long = (a > 0).astype(float)
+    cpp_curve = _equity_curve(a_long * r)
+
+    # Long/short/flat equity: use a directly (−1,0,+1)
+    spp_curve = _equity_curve(a * r)
+
+    return {
+        'cpp': float(cpp_curve[-1]) if cpp_curve.size else 1.0,
+        'cpp_hyst': list(map(float, cpp_curve)),
+        'spp': float(spp_curve[-1]) if spp_curve.size else 1.0,
+        'spp_hyst': list(map(float, spp_curve)),
     }
 
 
@@ -493,7 +545,7 @@ def summarize_performance(
 
     # Top-level metrics
     profitability: ProfitabilityDict = _profitability_from_actions(ts, actions)
-    classification = get_classification_metrics(ts, [True if v < 0 else False for v in actions])
+    classification = _classification_from_actions(ts, a)
     streaks: StreaksDict = _streaks_from_actions(ts, actions, sr)
 
     # main metrics
