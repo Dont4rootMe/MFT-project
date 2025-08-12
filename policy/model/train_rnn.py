@@ -14,16 +14,16 @@ from torch.utils.data import DataLoader
 
 def train(args: argparse.Namespace) -> None:
     try:  # pragma: no cover - allow running as script or module
-        from .dataset import HugeStockMarketDataset
+        from ..datasets.HugeStockMarket import HugeStockMarketDataset
         from .rnn_model import PriceRNN
     except ImportError:  # pragma: no cover
-        from dataset import HugeStockMarketDataset
+        from policy.datasets.HugeStockMarket import HugeStockMarketDataset
         from rnn_model import PriceRNN
 
     dataset = HugeStockMarketDataset(args.data, ts_len=args.ts_len)
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
     model = PriceRNN().to(device)
     criterion_cls = nn.CrossEntropyLoss()
     criterion_reg = nn.MSELoss()

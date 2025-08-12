@@ -19,9 +19,16 @@ class HugeStockMarketDataset(Dataset):
     """
 
     def __init__(self, dataset_path: str, ts_len: int) -> None:
-        root = Path(dataset_path) / "Data" / "Stocks"
-        files = os.listdir(root)
+        self.dataset_path = Path(dataset_path)
+        if not self.dataset_path.exists():
+            import kagglehub
+            # Download latest version
+            self.dataset_path = kagglehub.dataset_download("borismarjanovic/price-volume-data-for-all-us-stocks-etfs")
+            print("Path to dataset files:", self.dataset_path)
 
+        root = self.dataset_path / "Data" / "Stocks"
+        files = os.listdir(root)
+    
         self.objects = []
         for f in tqdm(files[:100]):
             try:
