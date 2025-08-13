@@ -80,3 +80,4 @@ __pycache__/
 *.coverage.json.gz
 *.coverage.html.gz
 *.coverage.txt.gz
+datasets/

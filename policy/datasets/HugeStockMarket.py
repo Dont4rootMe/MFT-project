@@ -26,7 +26,7 @@ class HugeStockMarketDataset(Dataset):
             os.environ["KAGGLEHUB_CACHE"] = str(self.dataset_path.parent)
             
             # Download latest version
-            self.dataset_path = kagglehub.dataset_download("borismarjanovic/price-volume-data-for-all-us-stocks-etfs")
+            self.dataset_path = Path(kagglehub.dataset_download("borismarjanovic/price-volume-data-for-all-us-stocks-etfs"))
             print("Path to dataset files:", self.dataset_path)
 
         root = self.dataset_path / "Data" / "Stocks"
