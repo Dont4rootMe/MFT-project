@@ -80,3 +80,33 @@ __pycache__/
 *.coverage.json.gz
 *.coverage.html.gz
 *.coverage.txt.gz
+datasets/
+
+*.ipynb_checkpoints
+*.DS_Store
+*.pyc
+*.swp
+*__pycache__
+*.egg-info
+dist
+build
+tags
+
+# test-related
+.coverage
+.cache
+.pytest_cache
+.mypy_cache
+*.html
+
+# developer environments
+.idea
+.vscode
+Pipfile
+
+# agent storage
+examples/agents
+examples/training_logs
+
+# virtual environment
+venv
