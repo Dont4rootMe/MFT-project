@@ -10,203 +10,345 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
-# limitations under the License
-
-
-"""
-References:
-    - http://inoryy.com/post/tensorflow2-deep-reinforcement-learning/#agent-interface
-"""
+# limitations under the License.
+#
+# ------------------------------------------------------------------------
+# PyTorch re‑implementation of the original TensorFlow 2 A2C agent.
+# ------------------------------------------------------------------------
+# References:
+#   - http://inoryy.com/post/tensorflow2-deep-reinforcement-learning/#agent-interface
+# ------------------------------------------------------------------------
 
 from deprecated import deprecated
 import random
-import numpy as np
-import tensorflow as tf
-
+from datetime import datetime
 from collections import namedtuple
+from typing import Optional
+
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
 
 from tensortrade.agents import Agent, ReplayMemory
-from datetime import datetime
 
-A2CTransition = namedtuple('A2CTransition', ['state', 'action', 'reward', 'done', 'value'])
+A2CTransition = namedtuple(
+    "A2CTransition", ["state", "action", "reward", "done", "value"]
+)
 
 
-@deprecated(version='1.0.4', reason="Builtin agents are being deprecated in favor of external implementations (ie: Ray)")
+# ────────────────────────────────────────────────────────────────────────────────
+# Helper networks
+# ────────────────────────────────────────────────────────────────────────────────
+
+
+class SharedNet(nn.Module):
+    """
+    Convolutional feature extractor shared by both actor and critic.
+    """
+
+    def __init__(self, input_shape: tuple):
+        """
+        Args:
+            input_shape: Shape of observation without batch dimension
+                         (C, L) for Conv1D.
+        """
+        super().__init__()
+        self.conv1 = nn.Conv1d(
+            in_channels=input_shape[0],
+            out_channels=64,
+            kernel_size=6,
+            padding="same",
+        )
+        self.conv2 = nn.Conv1d(
+            in_channels=64,
+            out_channels=32,
+            kernel_size=3,
+            padding="same",
+        )
+        self.pool = nn.MaxPool1d(kernel_size=2)
+        self.flatten = nn.Flatten()
+
+        # Determine the size of the flattened feature vector dynamically.
+        with torch.no_grad():
+            dummy = torch.zeros(1, *input_shape)
+            x = self._forward_conv(dummy)
+            self.output_dim = x.shape[1]
+
+    def _forward_conv(self, x: torch.Tensor) -> torch.Tensor:
+        x = torch.tanh(self.conv1(x))
+        x = self.pool(x)
+        x = torch.tanh(self.conv2(x))
+        x = self.pool(x)
+        x = self.flatten(x)
+        return x
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:  # noqa: D401
+        """
+        Forward pass through shared conv layers.
+
+        Args:
+            x: Tensor with shape (B, C, L)
+        """
+        return self._forward_conv(x)
+
+
+class ActorHead(nn.Module):
+    def __init__(self, in_dim: int, n_actions: int):
+        super().__init__()
+        self.fc1 = nn.Linear(in_dim, 50)
+        self.fc2 = nn.Linear(50, n_actions)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = F.relu(self.fc1(x))
+        return self.fc2(x)  # raw logits
+
+
+class CriticHead(nn.Module):
+    def __init__(self, in_dim: int):
+        super().__init__()
+        self.fc1 = nn.Linear(in_dim, 50)
+        self.fc2 = nn.Linear(50, 25)
+        self.fc3 = nn.Linear(25, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        return self.fc3(x)  # state‑value estimate
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+# Agent
+# ────────────────────────────────────────────────────────────────────────────────
+
+
+@deprecated(
+    version="1.0.4",
+    reason="Builtin agents are being deprecated in favor of external implementations (ie: Ray)",
+)
 class A2CAgent(Agent):
+    """
+    Advantage Actor‑Critic agent implemented in PyTorch.
+    """
 
-    def __init__(self,
-                 env: 'TradingEnvironment',
-                 shared_network: tf.keras.Model = None,
-                 actor_network: tf.keras.Model = None,
-                 critic_network: tf.keras.Model = None):
+    def __init__(
+        self,
+        env: "TradingEnvironment",
+        shared_network: Optional[nn.Module] = None,
+        actor_network: Optional[nn.Module] = None,
+        critic_network: Optional[nn.Module] = None,
+        device: Optional[str] = None,
+    ):
+        super().__init__()
         self.env = env
         self.n_actions = env.action_space.n
-        self.observation_shape = env.observation_space.shape
+        # Convert TF style (L, C) to PyTorch (C, L) for Conv1d.
+        self.observation_shape = (env.observation_space.shape[1], env.observation_space.shape[0])  # (C, L)
+        self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
 
-        self.shared_network = shared_network or self._build_shared_network()
-        self.actor_network = actor_network or self._build_actor_network()
-        self.critic_network = critic_network or self._build_critic_network()
+        # Networks
+        self.shared_network = (shared_network or SharedNet(self.observation_shape)).to(
+            self.device
+        )
+        if actor_network and critic_network:
+            self.actor_head = actor_network.to(self.device)
+            self.critic_head = critic_network.to(self.device)
+        else:
+            self.actor_head = ActorHead(self.shared_network.output_dim, self.n_actions).to(
+                self.device
+            )
+            self.critic_head = CriticHead(self.shared_network.output_dim).to(self.device)
+
+        # Optimizer (shared parameters get one optimizer to ensure synchronous update)
+        self.optimizer = optim.Adam(
+            list(self.shared_network.parameters())
+            + list(self.actor_head.parameters())
+            + list(self.critic_head.parameters())
+        )
 
         self.env.agent_id = self.id
 
-    def _build_shared_network(self):
-        network = tf.keras.Sequential([
-            tf.keras.layers.InputLayer(input_shape=self.observation_shape),
-            tf.keras.layers.Conv1D(filters=64, kernel_size=6, padding="same", activation="tanh"),
-            tf.keras.layers.MaxPooling1D(pool_size=2),
-            tf.keras.layers.Conv1D(filters=32, kernel_size=3, padding="same", activation="tanh"),
-            tf.keras.layers.MaxPooling1D(pool_size=2),
-            tf.keras.layers.Flatten()
-        ])
-
-        return network
-
-    def _build_actor_network(self):
-        actor_head = tf.keras.Sequential([
-            tf.keras.layers.Dense(50, activation='relu'),
-            tf.keras.layers.Dense(self.n_actions, activation='relu')
-        ])
-
-        return tf.keras.Sequential([self.shared_network, actor_head])
-
-    def _build_critic_network(self):
-        critic_head = tf.keras.Sequential([
-            tf.keras.layers.Dense(50, activation='relu'),
-            tf.keras.layers.Dense(25, activation='relu'),
-            tf.keras.layers.Dense(1, activation='relu')
-        ])
-
-        return tf.keras.Sequential([self.shared_network, critic_head])
-
-    def restore(self, path: str, **kwargs):
-        actor_filename: str = kwargs.get('actor_filename', None)
-        critic_filename: str = kwargs.get('critic_filename', None)
-
-        if not actor_filename or not critic_filename:
-            raise ValueError(
-                'The `restore` method requires a directory `path`, a `critic_filename`, and an `actor_filename`.')
-
-        self.actor_network = tf.keras.models.load_model(path + actor_filename)
-        self.critic_network = tf.keras.models.load_model(path + critic_filename)
+    # ────────────────────────────────────────────────────────────────────────
+    # Model I/O
+    # ────────────────────────────────────────────────────────────────────────
 
     def save(self, path: str, **kwargs):
-        episode: int = kwargs.get('episode', None)
+        """
+        Save state‑dicts of actor and critic heads plus shared conv layers.
+        """
+        episode = kwargs.get("episode", None)
+        suffix = (
+            f"{self.id[:7]}__{datetime.now().strftime('%Y%m%d_%H%M%S')}.pth"
+            if episode
+            else f"{self.id[:7]}__{datetime.now().strftime('%Y%m%d_%H%M%S')}.pth"
+        )
+        state = {
+            "shared": self.shared_network.state_dict(),
+            "actor": self.actor_head.state_dict(),
+            "critic": self.critic_head.state_dict(),
+            "episode": episode,
+        }
+        torch.save(state, f"{path}a2c_agent__{suffix}")
 
-        if episode:
-            suffix = self.id[:7] + "__" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".hdf5"
-            actor_filename = "actor_network__" + suffix
-            critic_filename = "critic_network__" + suffix
-        else:
-            actor_filename = "actor_network__" + self.id[:7] + "__" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".hdf5"
-            critic_filename = "critic_network__" + self.id[:7] + "__" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".hdf5"
+    def restore(self, path: str):
+        """
+        Restore agent from a checkpoint produced by ``save``.
+        """
+        state = torch.load(path, map_location=self.device)
+        self.shared_network.load_state_dict(state["shared"])
+        self.actor_head.load_state_dict(state["actor"])
+        self.critic_head.load_state_dict(state["critic"])
 
-        self.actor_network.save(path + actor_filename)
-        self.critic_network.save(path + critic_filename)
+    # ────────────────────────────────────────────────────────────────────────
+    # Utilities
+    # ────────────────────────────────────────────────────────────────────────
+
+    @torch.no_grad()
+    def _infer(self, state: np.ndarray):
+        state_t = torch.as_tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
+        # Convert to (B, C, L)
+        if state_t.ndim == 3:  # original shape (B, L, C)
+            state_t = state_t.permute(0, 2, 1)
+        features = self.shared_network(state_t)
+        logits = self.actor_head(features)
+        value = self.critic_head(features).squeeze(-1)  # (B,)
+        return logits, value
 
     def get_action(self, state: np.ndarray, **kwargs) -> int:
-        threshold: float = kwargs.get('threshold', 0)
-
-        rand = random.random()
-
-        if rand < threshold:
+        """
+        ε‑greedy sampling from policy.
+        """
+        threshold: float = kwargs.get("threshold", 0.0)
+        if random.random() < threshold:
             return np.random.choice(self.n_actions)
-        else:
-            logits = self.actor_network(state[None, :], training=False)
-            return tf.squeeze(tf.squeeze(tf.random.categorical(logits, 1), axis=-1), axis=-1)
 
-    def _apply_gradient_descent(self,
-                                memory: ReplayMemory,
-                                batch_size: int,
-                                learning_rate: float,
-                                discount_factor: float,
-                                entropy_c: float,):
-        huber_loss = tf.keras.losses.Huber()
-        wsce_loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-        optimizer = tf.keras.optimizers.Adam(lr=learning_rate)
+        logits, _ = self._infer(state)
+        probs = F.softmax(logits, dim=-1)
+        dist = torch.distributions.Categorical(probs)
+        return dist.sample().item()
 
+    # ────────────────────────────────────────────────────────────────────────
+    # Training helpers
+    # ────────────────────────────────────────────────────────────────────────
+
+    def _compute_returns(self, rewards, dones, discount_factor):
+        """
+        Compute discounted returns in reverse (vectorized).
+        """
+        returns = []
+        G = 0.0
+        for r, d in zip(reversed(rewards), reversed(dones)):
+            G = r + discount_factor * G * (1 - int(d))
+            returns.append(G)
+        return torch.tensor(list(reversed(returns)), dtype=torch.float32, device=self.device)
+
+    def _apply_gradient_descent(
+        self,
+        memory: ReplayMemory,
+        batch_size: int,
+        learning_rate: float,
+        discount_factor: float,
+        entropy_c: float,
+    ):
         transitions = memory.tail(batch_size)
         batch = A2CTransition(*zip(*transitions))
 
-        states = tf.convert_to_tensor(batch.state)
-        actions = tf.convert_to_tensor(batch.action)
-        rewards = tf.convert_to_tensor(batch.reward, dtype=tf.float32)
-        dones = tf.convert_to_tensor(batch.done)
-        values = tf.convert_to_tensor(batch.value)
+        states = torch.tensor(np.stack(batch.state), dtype=torch.float32, device=self.device)
+        if states.ndim == 3:  # (B, L, C) -> (B, C, L)
+            states = states.permute(0, 2, 1)
 
-        returns = []
-        exp_weighted_return = 0
+        actions = torch.tensor(batch.action, dtype=torch.int64, device=self.device)
+        rewards = torch.tensor(batch.reward, dtype=torch.float32, device=self.device)
+        dones = torch.tensor(batch.done, dtype=torch.bool, device=self.device)
+        values = torch.stack(batch.value).to(self.device)
 
-        for reward, done in zip(rewards[::-1], dones[::-1]):
-            exp_weighted_return = reward + discount_factor * exp_weighted_return * (1 - int(done))
-            returns += [exp_weighted_return]
+        returns = self._compute_returns(rewards, dones, discount_factor)
+        advantages = returns - values.detach()
 
-        returns = returns[::-1]
+        # Forward pass
+        features = self.shared_network(states)
+        logits = self.actor_head(features)
+        new_values = self.critic_head(features).squeeze(-1)
 
-        with tf.GradientTape() as tape:
-            state_values = self.critic_network(states)
-            critic_loss_value = huber_loss(returns, state_values)
+        # Critic loss (Huber)
+        critic_loss = F.huber_loss(new_values, returns)
 
-        gradients = tape.gradient(critic_loss_value, self.critic_network.trainable_variables)
-        optimizer.apply_gradients(zip(gradients, self.critic_network.trainable_variables))
+        # Actor loss (policy gradient with advantage weighting)
+        log_probs = F.log_softmax(logits, dim=-1)
+        selected_log_probs = log_probs.gather(1, actions.unsqueeze(1)).squeeze(1)
+        actor_loss = -(selected_log_probs * advantages).mean()
 
-        with tf.GradientTape() as tape:
-            returns = tf.reshape(returns, [batch_size, 1])
-            advantages = returns - values
+        # Entropy regularization
+        entropy = -(log_probs * torch.exp(log_probs)).sum(dim=-1).mean()
+        loss = actor_loss + 0.5 * critic_loss - entropy_c * entropy
 
-            actions = tf.cast(actions, tf.int32)
-            logits = self.actor_network(states)
-            policy_loss_value = wsce_loss(actions, logits, sample_weight=advantages)
+        # Optimise
+        self.optimizer.zero_grad()
+        loss.backward()
+        nn.utils.clip_grad_norm_(
+            list(self.shared_network.parameters())
+            + list(self.actor_head.parameters())
+            + list(self.critic_head.parameters()),
+            max_norm=0.5,
+        )
+        self.optimizer.step()
 
-            probs = tf.nn.softmax(logits)
-            entropy_loss_value = tf.keras.losses.categorical_crossentropy(probs, probs)
-            policy_total_loss_value = policy_loss_value - entropy_c * entropy_loss_value
+    # ────────────────────────────────────────────────────────────────────────
+    # Training loop
+    # ────────────────────────────────────────────────────────────────────────
 
-        gradients = tape.gradient(policy_total_loss_value,
-                                  self.actor_network.trainable_variables)
-        optimizer.apply_gradients(zip(gradients, self.actor_network.trainable_variables))
+    def train(
+        self,
+        n_steps: int = None,
+        n_episodes: int = None,
+        save_every: int = None,
+        save_path: str = None,
+        callback: callable = None,
+        **kwargs,
+    ) -> float:
+        batch_size: int = kwargs.get("batch_size", 128)
+        discount_factor: float = kwargs.get("discount_factor", 0.9999)
+        learning_rate: float = kwargs.get("learning_rate", 0.0001)
+        eps_start: float = kwargs.get("eps_start", 0.9)
+        eps_end: float = kwargs.get("eps_end", 0.05)
+        eps_decay_steps: int = kwargs.get("eps_decay_steps", 200)
+        entropy_c: float = kwargs.get("entropy_c", 0.0001)
+        memory_capacity: int = kwargs.get("memory_capacity", 1000)
 
-    def train(self,
-              n_steps: int = None,
-              n_episodes: int = None,
-              save_every: int = None,
-              save_path: str = None,
-              callback: callable = None,
-              **kwargs) -> float:
-        batch_size: int = kwargs.get('batch_size', 128)
-        discount_factor: float = kwargs.get('discount_factor', 0.9999)
-        learning_rate: float = kwargs.get('learning_rate', 0.0001)
-        eps_start: float = kwargs.get('eps_start', 0.9)
-        eps_end: float = kwargs.get('eps_end', 0.05)
-        eps_decay_steps: int = kwargs.get('eps_decay_steps', 200)
-        entropy_c: int = kwargs.get('entropy_c', 0.0001)
-        memory_capacity: int = kwargs.get('memory_capacity', 1000)
+        # update learning rate if provided (allows runtime adjustment)
+        for pg in self.optimizer.param_groups:
+            pg["lr"] = learning_rate
 
         memory = ReplayMemory(memory_capacity, transition_type=A2CTransition)
         episode = 0
         steps_done = 0
-        total_reward = 0
+        total_reward = 0.0
         stop_training = False
 
         if n_steps and not n_episodes:
             n_episodes = np.iinfo(np.int32).max
 
-        print('====      AGENT ID: {}      ===='.format(self.id))
+        print(f"====      AGENT ID: {self.id}      ====")
 
         while episode < n_episodes and not stop_training:
             state = self.env.reset()
             done = False
 
-            print('====      EPISODE ID ({}/{}): {}      ===='.format(episode + 1,
-                                                                      n_episodes,
-                                                                      self.env.episode_id))
+            print(
+                f"====      EPISODE ID ({episode + 1}/{n_episodes}): {self.env.episode_id}      ===="
+            )
 
             while not done:
-                threshold = eps_end + (eps_start - eps_end) * np.exp(-steps_done / eps_decay_steps)
+                threshold = eps_end + (eps_start - eps_end) * np.exp(
+                    -steps_done / eps_decay_steps
+                )
                 action = self.get_action(state, threshold=threshold)
                 next_state, reward, done, _ = self.env.step(action)
 
-                value = self.critic_network(state[None, :], training=False)
-                value = tf.squeeze(value, axis=-1)
+                # Compute value of current state for advantage
+                with torch.no_grad():
+                    _, value = self._infer(state)
 
                 memory.push(state, action, reward, done, value)
 
@@ -217,23 +359,23 @@ class A2CAgent(Agent):
                 if len(memory) < batch_size:
                     continue
 
-                self._apply_gradient_descent(memory,
-                                             batch_size,
-                                             learning_rate,
-                                             discount_factor,
-                                             entropy_c)
+                self._apply_gradient_descent(
+                    memory,
+                    batch_size,
+                    learning_rate,
+                    discount_factor,
+                    entropy_c,
+                )
 
                 if n_steps and steps_done >= n_steps:
                     done = True
                     stop_training = True
 
             is_checkpoint = save_every and episode % save_every == 0
-
-            if save_path and (is_checkpoint or episode == n_episodes):
+            if save_path and (is_checkpoint or episode + 1 == n_episodes):
                 self.save(save_path, episode=episode)
 
             episode += 1
 
-        mean_reward = total_reward / steps_done
-
+        mean_reward = total_reward / max(1, steps_done)
         return mean_reward

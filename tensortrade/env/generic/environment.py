@@ -125,7 +125,7 @@ class TradingEnv(gymnasium.Env, TimeIndexed):
             The information gathered after completing the step.
         """
         self.action_scheme.perform(self, action)
-
+        # morning –> night
         obs = self.observer.observe(self)
         reward = self.reward_scheme.reward(self)
         terminated = self.stopper.stop(self)
