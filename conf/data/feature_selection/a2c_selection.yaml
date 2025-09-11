@@ -1,0 +1,19 @@
+# Feature Selection Configuration for A2C Agent
+
+enabled: true
+
+# Selection method: "variance" or "ml_based"
+method: "variance"
+
+# Maximum number of features to select
+# Set to null or -1 to keep all features
+max_features: 50
+
+# Variance threshold for variance-based selection
+# Features with variance below this threshold will be removed
+threshold: 0.16
+
+# ML-based selection parameters (used when method is "ml_based")
+ml_params:
+  score_func: "f_classif"  # Scoring function for SelectKBest
+  target_type: "binary"    # Type of target variable

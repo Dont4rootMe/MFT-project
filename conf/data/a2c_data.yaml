@@ -1,0 +1,10 @@
+defaults:
+  - feature_engineering: a2c_features
+  - feature_selection: a2c_selection
+
+_target_: pipelines.a2c_agent.data.data_parser.DataHandler
+
+symbols: [PEPE, LINK, SOL]
+time_freq: "1h"
+exchange: "Binance"
+main_currency: "USDT"

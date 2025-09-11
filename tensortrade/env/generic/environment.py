@@ -104,13 +104,16 @@ class TradingEnv(gymnasium.Env, TimeIndexed):
             "renderer": self.renderer
         }
 
-    def step(self, action: Any) -> 'Tuple[np.array, float, bool, dict]':
+    def step(self, action: Any, skip_decision: bool = False) -> 'Tuple[np.array, float, bool, dict]':
         """Makes one step through the environment.
 
         Parameters
         ----------
         action : Any
             An action to perform on the environment.
+            
+        skip_decision : bool
+            Whether to skip decision making and just observe the environment.
 
         Returns
         -------
@@ -124,7 +127,10 @@ class TradingEnv(gymnasium.Env, TimeIndexed):
         dict
             The information gathered after completing the step.
         """
-        self.action_scheme.perform(self, action)
+        # if skip_decision is True, we skip the entering of trading segment
+        if not skip_decision:
+            self.action_scheme.perform(self, action)
+        
         # morning –> night
         obs = self.observer.observe(self)
         reward = self.reward_scheme.reward(self)

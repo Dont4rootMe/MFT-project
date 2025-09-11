@@ -1,0 +1,408 @@
+# =============================================================================
+# FEATURE ENGINEERING CONFIGURATION TEMPLATE
+# =============================================================================
+# This template shows all possible feature engineering options
+# Uncomment and modify the options you want to use
+# =============================================================================
+
+# Enable/disable entire feature engineering pipeline
+# Options: true, false
+enabled: true
+
+# =============================================================================
+# TECHNICAL INDICATORS CONFIGURATION
+# =============================================================================
+
+technical_indicators:
+  # Enable/disable technical indicators generation
+  enabled: true
+  
+  # Strategy categories to include
+  # You can specify individual strategies or use "all" for everything
+  # 
+  # AVAILABLE STRATEGIES (categorical options):
+  strategies:
+    - "all"  # Include all available technical indicators
+  
+  # Alternative: Specify individual strategy categories
+  # strategies:
+  #   - "candles"      # Candlestick pattern recognition
+  #   - "cycles"       # Cycle indicators (Hilbert Transform, etc.)
+  #   - "momentum"     # Momentum indicators (RSI, MACD, ROC, etc.)
+  #   - "overlap"      # Overlap studies (SMA, EMA, Bollinger Bands, etc.)
+  #   - "performance"  # Performance indicators (returns, ratios)
+  #   - "statistics"   # Statistical indicators (variance, correlation)
+  #   - "trend"        # Trend indicators (ADX, Aroon, PSAR, etc.)
+  #   - "volatility"   # Volatility indicators (ATR, Bollinger %B, etc.)
+  #   - "volume"       # Volume indicators (OBV, VWAP, MFI, etc.)
+  
+  # DETAILED STRATEGY DESCRIPTIONS:
+  # --------------------------------
+  # candles:     Candlestick patterns (Doji, Hammer, Engulfing, etc.)
+  #              - Good for: Pattern recognition, reversal signals
+  #              - Note: Can be noisy, may not work well with all timeframes
+  #
+  # cycles:      Cycle analysis indicators
+  #              - Hilbert Transform indicators
+  #              - Dominant Cycle Period, Instantaneous Trendline
+  #              - Good for: Market cycle analysis
+  #              - Note: Computationally expensive, advanced usage
+  #
+  # momentum:    Momentum and oscillator indicators
+  #              - RSI, MACD, Stochastic, Williams %R, ROC
+  #              - Good for: Identifying overbought/oversold conditions
+  #              - Best for: Short to medium-term trading signals
+  #
+  # overlap:     Overlap studies (price-based indicators)
+  #              - Moving Averages (SMA, EMA, WMA), Bollinger Bands
+  #              - Good for: Trend following, support/resistance levels
+  #              - Best for: All timeframes, fundamental analysis
+  #
+  # performance: Performance and return-based indicators
+  #              - Various return calculations and performance metrics
+  #              - Good for: Portfolio analysis, risk assessment
+  #
+  # statistics:  Statistical indicators
+  #              - Variance, correlation, regression-based indicators
+  #              - Good for: Market analysis, relationship identification
+  #
+  # trend:       Trend identification indicators
+  #              - ADX, Aroon, Parabolic SAR, Trix
+  #              - Good for: Trend strength and direction
+  #              - Best for: Trend-following strategies
+  #
+  # volatility:  Volatility measurement indicators
+  #              - ATR, Bollinger %B, Keltner Channels
+  #              - Good for: Risk management, position sizing
+  #              - Best for: Volatility-based strategies
+  #
+  # volume:      Volume-based indicators
+  #              - OBV, VWAP, Money Flow Index, Volume Rate of Change
+  #              - Good for: Confirming price movements
+  #              - Best for: Institutional trading analysis
+  
+  # Indicators to exclude (useful when using "all" strategy)
+  # Common exclusions and reasons:
+  exclude:
+    - "cdl"        # Candlestick patterns - can be noisy and unreliable
+    - "cycles"     # Cycle indicators - computationally expensive
+    # - "pattern"  # Pattern recognition - may generate too many features
+  
+  # Additional exclusion options:
+  # exclude:
+  #   - "cdl"           # All candlestick patterns
+  #   - "ht_dcperiod"   # Hilbert Transform - Dominant Cycle Period
+  #   - "ht_dcphase"    # Hilbert Transform - Dominant Cycle Phase
+  #   - "ht_phasor"     # Hilbert Transform - Phasor Components
+  #   - "ht_sine"       # Hilbert Transform - SineWave
+  #   - "ht_trendmode"  # Hilbert Transform - Trend vs Cycle Mode
+
+# =============================================================================
+# CUSTOM FEATURES CONFIGURATION
+# =============================================================================
+
+custom_features:
+  # Enable/disable custom feature generation
+  enabled: true
+  
+  # Lookback periods for rolling window calculations
+  # These define the window sizes for moving averages, volatility, etc.
+  # 
+  # COMMON PERIOD CATEGORIES:
+  # - Very Short-term: [3, 5, 7]        # For high-frequency trading
+  # - Short-term:      [5, 10, 20]      # For day trading
+  # - Medium-term:     [20, 50, 100]    # For swing trading
+  # - Long-term:       [100, 200, 500]  # For position trading
+  # - Mixed:           [5, 10, 20, 50, 100, 200]  # Comprehensive analysis
+  lookback_periods: [5, 10, 20, 50]
+  
+  # Alternative period configurations:
+  # lookback_periods: [3, 5, 7, 14, 21]           # Fibonacci-based periods
+  # lookback_periods: [5, 10, 15, 20, 25, 30]     # Regular intervals
+  # lookback_periods: [7, 14, 21, 28]             # Weekly-based periods
+  
+  # Price feature types to generate
+  # Each feature will be calculated for all lookback periods
+  price_features:
+    - "moving_averages"              # Simple Moving Averages (SMA)
+    - "exponential_moving_averages"  # Exponential Moving Averages (EMA)
+    - "volatility"                   # Rolling standard deviation
+    - "log_returns"                  # Logarithmic returns
+    - "price_shifts"                 # Lagged price values
+  
+  # COMPREHENSIVE FEATURE OPTIONS:
+  # Uncomment additional features as needed:
+  # price_features:
+  #   # === MOVING AVERAGES ===
+  #   - "moving_averages"              # Simple Moving Average (SMA)
+  #   - "exponential_moving_averages"  # Exponential Moving Average (EMA)
+  #   - "weighted_moving_averages"     # Weighted Moving Average (WMA)
+  #   - "hull_moving_averages"         # Hull Moving Average (HMA)
+  #   - "adaptive_moving_averages"     # Adaptive Moving Average (AMA)
+  #   
+  #   # === VOLATILITY MEASURES ===
+  #   - "volatility"                   # Rolling standard deviation
+  #   - "realized_volatility"          # Realized volatility (sum of squared returns)
+  #   - "garman_klass_volatility"      # Garman-Klass volatility estimator
+  #   - "yang_zhang_volatility"        # Yang-Zhang volatility estimator
+  #   
+  #   # === RETURNS ===
+  #   - "log_returns"                  # Logarithmic returns: ln(price_t / price_{t-1})
+  #   - "simple_returns"               # Simple returns: (price_t - price_{t-1}) / price_{t-1}
+  #   - "forward_returns"              # Future returns (for target creation)
+  #   
+  #   # === LAG FEATURES ===
+  #   - "price_shifts"                 # Lagged price values (t-1, t-2, etc.)
+  #   - "return_shifts"                # Lagged return values
+  #   - "volume_shifts"                # Lagged volume values
+  #   
+  #   # === PRICE RELATIONSHIPS ===
+  #   - "price_ratios"                 # High/Low, Close/Open ratios
+  #   - "price_differences"            # High-Low, Close-Open differences
+  #   - "price_ranges"                 # True Range, Average True Range
+  #   - "price_positions"              # Relative position within range
+  #   
+  #   # === ROLLING STATISTICS ===
+  #   - "rolling_min"                  # Rolling minimum
+  #   - "rolling_max"                  # Rolling maximum  
+  #   - "rolling_median"               # Rolling median
+  #   - "rolling_quantiles"            # Rolling quantiles (25%, 75%)
+  #   - "rolling_skew"                 # Rolling skewness
+  #   - "rolling_kurt"                 # Rolling kurtosis
+  #   
+  #   # === MOMENTUM FEATURES ===
+  #   - "price_momentum"               # Rate of change over different periods
+  #   - "volume_momentum"              # Volume rate of change
+  #   - "acceleration"                 # Second derivative of price
+  #   
+  #   # === TECHNICAL PATTERNS ===
+  #   - "support_resistance"           # Support and resistance levels
+  #   - "pivot_points"                 # Pivot point calculations
+  #   - "fibonacci_levels"             # Fibonacci retracement levels
+  #   
+  #   # === TIME-BASED FEATURES ===
+  #   - "time_of_day"                  # Hour of day (for intraday patterns)
+  #   - "day_of_week"                  # Day of week (for weekly patterns)
+  #   - "day_of_month"                 # Day of month (for monthly patterns)
+  #   - "seasonal_components"          # Seasonal decomposition components
+
+# =============================================================================
+# QUANTSTATS FEATURES CONFIGURATION
+# =============================================================================
+
+quantstats_features:
+  # Enable/disable quantstats-based features
+  # Note: These features can be computationally expensive and may require
+  #       significant historical data to be meaningful
+  enabled: false
+  
+  # Feature categories to include
+  # Similar to technical indicators, you can specify categories or use "all"
+  # 
+  # CATEGORICAL OPTIONS:
+  categories:
+    - "all"  # Include all available quantstats features
+  
+  # Alternative: Specify individual feature categories
+  # categories:
+  #   - "risk"          # Risk metrics (drawdown, VaR, etc.)
+  #   - "returns"       # Return-based metrics (Sharpe, Sortino, etc.)
+  #   - "performance"   # Performance metrics (win rate, profit factor, etc.)
+  #   - "volatility"    # Volatility metrics
+  #   - "drawdown"      # Drawdown-specific metrics
+  #   - "distribution"  # Distribution metrics (skew, kurtosis, etc.)
+  
+  # DETAILED CATEGORY DESCRIPTIONS:
+  # --------------------------------
+  # risk:         Risk assessment metrics
+  #               - max_drawdown, avg_drawdown, var, cvar, expected_shortfall
+  #               - ulcer_index, serenity_index, recovery_factor
+  #               - Good for: Risk management, portfolio optimization
+  #               - Best for: Long-term investment strategies
+  #
+  # returns:      Return-based performance metrics
+  #               - sharpe, sortino, calmar, omega, information_ratio
+  #               - modigliani, adjusted_sortino, skew, kurtosis
+  #               - Good for: Strategy comparison, risk-adjusted returns
+  #               - Best for: Performance evaluation and benchmarking
+  #
+  # performance:  Trading performance metrics
+  #               - win_rate, avg_win, avg_loss, profit_factor, payoff_ratio
+  #               - profit_ratio, cpc_index, tail_ratio, common_sense_ratio
+  #               - Good for: Strategy evaluation, trade analysis
+  #               - Best for: Trading system development and optimization
+  #
+  # volatility:   Volatility measurement and analysis
+  #               - volatility, rolling_volatility, volatility_of_volatility
+  #               - Good for: Risk assessment, position sizing
+  #               - Best for: Volatility-based strategies and risk management
+  #
+  # drawdown:     Drawdown analysis metrics
+  #               - to_drawdown_series, drawdown_details, max_drawdown
+  #               - avg_drawdown, avg_drawdown_days
+  #               - Good for: Risk assessment, capital preservation
+  #               - Best for: Conservative strategies and risk management
+  #
+  # distribution: Statistical distribution metrics
+  #               - skew, kurtosis, outliers, kelly, risk_of_ruin
+  #               - Good for: Statistical analysis, tail risk assessment
+  #               - Best for: Advanced statistical modeling and analysis
+  
+  # Quantstats indicators to exclude
+  # These are applied after category selection
+  # Common exclusions due to computational cost or redundancy:
+  exclude:
+    - "max_drawdown"        # Maximum drawdown calculation (computationally expensive)
+    - "calmar"              # Calmar ratio (annual return / max drawdown)
+    - "omega"               # Omega ratio (probability-weighted ratio)
+    - "sortino"             # Sortino ratio (downside deviation adjusted)
+    - "tail_ratio"          # Tail ratio (95th percentile / 5th percentile)
+    - "common_sense_ratio"  # Common sense ratio
+    - "kelly"               # Kelly criterion
+  
+  # AVAILABLE QUANTSTATS FEATURES BY CATEGORY:
+  # ==========================================
+  # 
+  # RISK CATEGORY:
+  # - "max_drawdown"        # Maximum peak-to-trough decline
+  # - "avg_drawdown"        # Average drawdown
+  # - "avg_drawdown_days"   # Average drawdown duration
+  # - "recovery_factor"     # Recovery factor
+  # - "ulcer_index"         # Ulcer index (drawdown-based risk measure)
+  # - "serenity_index"      # Serenity index
+  # - "var"                 # Value at Risk
+  # - "cvar"                # Conditional Value at Risk
+  # - "expected_shortfall"  # Expected shortfall
+  # 
+  # RETURNS CATEGORY:
+  # - "sharpe"              # Sharpe ratio
+  # - "sortino"             # Sortino ratio (downside-focused Sharpe)
+  # - "calmar"              # Calmar ratio (return/max drawdown)
+  # - "omega"               # Omega ratio
+  # - "information_ratio"   # Information ratio
+  # - "modigliani"          # Modigliani ratio
+  # - "adjusted_sortino"    # Adjusted Sortino ratio
+  # - "skew"                # Return distribution skewness
+  # - "kurtosis"            # Return distribution kurtosis
+  # 
+  # PERFORMANCE CATEGORY:
+  # - "win_rate"            # Percentage of winning periods
+  # - "avg_win"             # Average winning return
+  # - "avg_loss"            # Average losing return
+  # - "profit_factor"       # Gross profit / gross loss
+  # - "payoff_ratio"        # Average win / average loss
+  # - "profit_ratio"        # Profit ratio
+  # - "cpc_index"           # Common Performance Coefficient
+  # - "tail_ratio"          # Tail ratio
+  # - "outlier_win_ratio"   # Outlier win ratio
+  # - "outlier_loss_ratio"  # Outlier loss ratio
+  # - "common_sense_ratio"  # Common sense ratio
+  # - "cagr"                # Compound Annual Growth Rate
+  # - "rar"                 # Risk-Adjusted Return
+  # 
+  # VOLATILITY CATEGORY:
+  # - "volatility"          # Annualized volatility
+  # - "rolling_volatility"  # Rolling volatility measures
+  # - "volatility_of_volatility" # Second-order volatility
+  # 
+  # DRAWDOWN CATEGORY:
+  # - "to_drawdown_series"  # Convert returns to drawdown series
+  # - "drawdown_details"    # Detailed drawdown analysis
+  # - "max_drawdown"        # Maximum drawdown
+  # - "avg_drawdown"        # Average drawdown
+  # - "avg_drawdown_days"   # Average drawdown duration
+  # 
+  # DISTRIBUTION CATEGORY:
+  # - "skew"                # Return distribution skewness
+  # - "kurtosis"            # Return distribution kurtosis
+  # - "outliers"            # Outlier detection and analysis
+  # - "kelly"               # Kelly criterion
+  # - "risk_of_ruin"        # Risk of ruin calculation
+
+# =============================================================================
+# ADVANCED FEATURE ENGINEERING OPTIONS
+# =============================================================================
+
+# Custom indicator parameters (uncomment to customize)
+# custom_indicators:
+#   # RSI parameters
+#   rsi:
+#     periods: [14, 21, 28]      # Different RSI periods
+#     overbought: 70             # Overbought threshold
+#     oversold: 30               # Oversold threshold
+#   
+#   # MACD parameters  
+#   macd:
+#     fast_periods: [12, 8]      # Fast EMA periods
+#     slow_periods: [26, 21]     # Slow EMA periods
+#     signal_periods: [9, 7]     # Signal line periods
+#   
+#   # Bollinger Bands parameters
+#   bollinger:
+#     periods: [20, 14, 28]      # Moving average periods
+#     std_devs: [2.0, 1.5, 2.5] # Standard deviation multipliers
+#   
+#   # Stochastic parameters
+#   stochastic:
+#     k_periods: [14, 21]        # %K periods
+#     d_periods: [3, 5]          # %D periods
+#     smooth_k: [3, 1]           # %K smoothing
+
+# Feature transformation options (uncomment to enable)
+# transformations:
+#   # Normalization methods
+#   normalization:
+#     enabled: false
+#     method: "zscore"           # Options: "zscore", "minmax", "robust"
+#     
+#   # Log transformation
+#   log_transform:
+#     enabled: false
+#     columns: ["volume"]        # Columns to log-transform
+#     
+#   # Polynomial features
+#   polynomial:
+#     enabled: false
+#     degree: 2                  # Polynomial degree
+#     interaction_only: false    # Only interaction terms
+#     
+#   # Principal Component Analysis
+#   pca:
+#     enabled: false
+#     n_components: 0.95         # Keep 95% of variance
+#     
+#   # Feature scaling
+#   scaling:
+#     enabled: false
+#     method: "standard"         # Options: "standard", "minmax", "robust"
+
+# Performance optimization
+# performance:
+#   # Parallel processing
+#   use_multiprocessing: true
+#   n_jobs: -1                   # Use all available cores
+#   
+#   # Memory optimization
+#   chunk_size: 1000             # Process data in chunks
+#   low_memory: false            # Trade memory for speed
+#   
+#   # Caching
+#   cache_features: true         # Cache computed features
+#   cache_dir: "cache/"          # Cache directory
+
+# Feature validation
+# validation:
+#   # Check for infinite values
+#   check_inf: true
+#   
+#   # Check for NaN values
+#   check_nan: true
+#   
+#   # Maximum allowed NaN percentage
+#   max_nan_percentage: 0.1
+#   
+#   # Minimum variance threshold
+#   min_variance: 0.001
+#   
+#   # Feature correlation threshold
+#   max_correlation: 0.95

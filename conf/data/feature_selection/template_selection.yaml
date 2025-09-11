@@ -1,0 +1,343 @@
+# =============================================================================
+# FEATURE SELECTION CONFIGURATION TEMPLATE
+# =============================================================================
+# This template shows all possible feature selection options
+# Uncomment and modify the options you want to use
+# =============================================================================
+
+# Enable/disable entire feature selection pipeline
+# Options: true, false
+enabled: true
+
+# =============================================================================
+# FEATURE SELECTION METHOD
+# =============================================================================
+
+# Primary feature selection method
+# CATEGORICAL OPTIONS:
+#   - "variance"        # Variance-based selection (remove low-variance features)
+#   - "ml_based"        # ML-based selection using statistical tests
+#   - "correlation"     # Correlation-based selection (future implementation)
+#   - "recursive"       # Recursive Feature Elimination (future implementation)
+#   - "tree_based"      # Tree-based feature importance (future implementation)
+#   - "lasso"          # L1 regularization-based selection (future implementation)
+#   - "mutual_info"    # Mutual information-based selection (future implementation)
+method: "variance"
+
+# METHOD DESCRIPTIONS:
+# -------------------
+# variance:     Removes features with low variance (quasi-constant features)
+#               - Fast and simple
+#               - Good for removing uninformative features
+#               - Best for: Initial feature cleaning, high-dimensional data
+#
+# ml_based:     Uses statistical tests to select features
+#               - SelectKBest with various scoring functions
+#               - Good for supervised feature selection
+#               - Best for: Classification/regression tasks
+#
+# correlation:  Removes highly correlated features (reduces multicollinearity)
+#               - Maintains feature interpretability
+#               - Good for reducing redundancy
+#               - Best for: Linear models, interpretable ML
+#
+# recursive:    Recursive Feature Elimination (RFE)
+#               - Uses model-based feature importance
+#               - More sophisticated but slower
+#               - Best for: Complex models, optimal feature subsets
+#
+# tree_based:   Uses tree-based model feature importance
+#               - Random Forest or XGBoost feature importance
+#               - Captures non-linear relationships
+#               - Best for: Non-linear patterns, feature interactions
+#
+# lasso:        L1 regularization for automatic feature selection
+#               - Embedded feature selection method
+#               - Handles multicollinearity well
+#               - Best for: Linear models, sparse solutions
+#
+# mutual_info:  Mutual information-based selection
+#               - Captures non-linear dependencies
+#               - Information theory-based approach
+#               - Best for: Complex relationships, non-linear patterns
+
+# =============================================================================
+# FEATURE SELECTION PARAMETERS
+# =============================================================================
+
+# Maximum number of features to select
+# OPTIONS:
+#   - null or -1:        Keep all features that pass selection criteria
+#   - positive integer:  Exact number of features to select
+#   - float (0.0-1.0):   Fraction of features to select
+# 
+# COMMON VALUES:
+#   - 10-20:   Very selective (for simple models)
+#   - 50-100:  Moderate selection (balanced approach)
+#   - 200-500: Light selection (for complex models)
+max_features: 50
+
+# Alternative max_features options:
+# max_features: null      # Keep all features passing criteria
+# max_features: 0.1       # Keep 10% of features
+# max_features: 100       # Keep exactly 100 features
+
+# =============================================================================
+# VARIANCE-BASED SELECTION PARAMETERS
+# =============================================================================
+
+# Variance threshold for variance-based selection
+# Features with variance below this threshold will be removed
+# 
+# THRESHOLD GUIDELINES:
+#   - 0.0:    Remove only constant features
+#   - 0.01:   Remove very low variance features (1% variance)
+#   - 0.1:    Remove low variance features (10% variance)  
+#   - 0.16:   Default threshold (16% variance)
+#   - 0.25:   More aggressive threshold (25% variance)
+threshold: 0.16
+
+# VARIANCE THRESHOLD SELECTION GUIDE:
+# -----------------------------------
+# For normalized data (0-1 scale):
+#   - 0.01: Very conservative, removes only near-constant features
+#   - 0.1:  Moderate, good balance between retention and filtering
+#   - 0.16: Default pandas_ta threshold, well-tested
+#   - 0.25: Aggressive, removes many low-variance features
+#
+# For price data (varying scales):
+#   - Consider relative variance: threshold = 0.01 * mean(feature_variance)
+#
+# For standardized data (z-score):
+#   - 0.1-0.5: Reasonable range for standardized features
+
+# =============================================================================
+# ML-BASED SELECTION PARAMETERS
+# =============================================================================
+
+ml_params:
+  # Scoring function for statistical feature selection
+  # CATEGORICAL OPTIONS:
+  #
+  # FOR CLASSIFICATION:
+  #   - "f_classif"           # F-statistic (ANOVA F-test)
+  #   - "chi2"               # Chi-squared statistic (non-negative features only)
+  #   - "mutual_info_classif" # Mutual information for classification
+  #
+  # FOR REGRESSION:
+  #   - "f_regression"        # F-statistic for regression
+  #   - "mutual_info_regression" # Mutual information for regression
+  score_func: "f_classif"
+  
+  # SCORING FUNCTION DESCRIPTIONS:
+  # ------------------------------
+  # f_classif:           ANOVA F-test between feature and target
+  #                      - Assumes linear relationships
+  #                      - Fast and interpretable
+  #                      - Best for: Linear relationships, continuous features
+  #
+  # chi2:                Chi-squared test of independence
+  #                      - Requires non-negative features
+  #                      - Good for categorical relationships
+  #                      - Best for: Count data, categorical features
+  #
+  # mutual_info_classif: Mutual information for classification
+  #                      - Captures non-linear relationships
+  #                      - More computationally expensive
+  #                      - Best for: Non-linear patterns, mixed feature types
+  #
+  # f_regression:        F-statistic for regression
+  #                      - Linear relationship assumption
+  #                      - Fast and straightforward
+  #                      - Best for: Regression tasks, linear models
+  #
+  # mutual_info_regression: Mutual information for regression
+  #                         - Non-linear relationship detection
+  #                         - Robust to outliers
+  #                         - Best for: Complex regression, non-linear patterns
+  
+  # Target variable type (determines how target is created from price data)
+  # CATEGORICAL OPTIONS:
+  #   - "binary"      # Binary classification (price up/down)
+  #   - "multiclass"  # Multi-class classification (price change ranges)
+  #   - "regression"  # Regression (continuous price prediction)
+  target_type: "binary"
+  
+  # TARGET TYPE DESCRIPTIONS:
+  # ------------------------
+  # binary:      Creates binary target (1 if price increases, 0 if decreases)
+  #              - Simple and interpretable
+  #              - Good for trend prediction
+  #              - Best for: Direction prediction, simple strategies
+  #
+  # multiclass:  Creates categorical target based on price change ranges
+  #              - More granular than binary
+  #              - Can capture different market regimes
+  #              - Best for: Regime detection, complex strategies
+  #
+  # regression:  Uses continuous price changes as target
+  #              - Preserves magnitude information
+  #              - More challenging but potentially more informative
+  #              - Best for: Price forecasting, quantitative strategies
+
+# =============================================================================
+# ADVANCED SELECTION PARAMETERS
+# =============================================================================
+
+# Correlation-based selection parameters (uncomment to enable)
+# correlation_params:
+#   # Correlation threshold for feature removal
+#   # Features with correlation above this threshold will be removed
+#   threshold: 0.95
+#   
+#   # Correlation method
+#   # Options: "pearson", "spearman", "kendall"
+#   method: "pearson"
+#   
+#   # Strategy for removing correlated features
+#   # Options: "remove_first", "remove_second", "remove_lower_variance"
+#   removal_strategy: "remove_lower_variance"
+
+# Recursive Feature Elimination parameters (uncomment to enable)
+# rfe_params:
+#   # Base estimator for RFE
+#   # Options: "random_forest", "linear_svm", "logistic_regression"
+#   estimator: "random_forest"
+#   
+#   # Step size for feature removal
+#   # Options: integer (number of features) or float (fraction)
+#   step: 1
+#   
+#   # Cross-validation folds for RFE-CV
+#   cv_folds: 5
+#   
+#   # Scoring metric for RFE-CV
+#   scoring: "accuracy"
+
+# Tree-based selection parameters (uncomment to enable)
+# tree_params:
+#   # Tree-based model type
+#   # Options: "random_forest", "extra_trees", "xgboost", "lightgbm"
+#   model_type: "random_forest"
+#   
+#   # Number of estimators
+#   n_estimators: 100
+#   
+#   # Feature importance threshold
+#   importance_threshold: 0.01
+#   
+#   # Random state for reproducibility
+#   random_state: 42
+
+# L1 regularization parameters (uncomment to enable)
+# lasso_params:
+#   # Regularization strength
+#   # Higher values = more regularization = fewer features
+#   alpha: 0.01
+#   
+#   # Maximum number of iterations
+#   max_iter: 1000
+#   
+#   # Tolerance for optimization
+#   tol: 1e-4
+#   
+#   # Cross-validation for alpha selection
+#   cv_alpha_selection: true
+#   cv_folds: 5
+
+# Mutual information parameters (uncomment to enable)
+# mutual_info_params:
+#   # Discretization strategy for continuous features
+#   # Options: "uniform", "quantile"
+#   discretization: "quantile"
+#   
+#   # Number of bins for discretization
+#   n_bins: 10
+#   
+#   # Random state for reproducibility
+#   random_state: 42
+
+# =============================================================================
+# FEATURE SELECTION PIPELINE CONFIGURATION
+# =============================================================================
+
+# Multi-stage feature selection (uncomment to enable)
+# pipeline:
+#   # Enable multi-stage selection
+#   enabled: false
+#   
+#   # Selection stages (applied in order)
+#   stages:
+#     - method: "variance"
+#       params:
+#         threshold: 0.01
+#     - method: "correlation"
+#       params:
+#         threshold: 0.95
+#     - method: "ml_based"
+#       params:
+#         score_func: "f_classif"
+#         k: 100
+
+# Feature selection validation (uncomment to enable)
+# validation:
+#   # Enable feature selection validation
+#   enabled: false
+#   
+#   # Validation method
+#   # Options: "stability", "performance", "both"
+#   method: "both"
+#   
+#   # Stability validation parameters
+#   stability:
+#     # Number of bootstrap samples
+#     n_bootstrap: 100
+#     # Minimum stability score (0-1)
+#     min_stability: 0.7
+#   
+#   # Performance validation parameters
+#   performance:
+#     # Validation metric
+#     metric: "accuracy"
+#     # Cross-validation folds
+#     cv_folds: 5
+#     # Minimum performance improvement
+#     min_improvement: 0.01
+
+# =============================================================================
+# OUTPUT AND REPORTING CONFIGURATION
+# =============================================================================
+
+# Feature selection reporting (uncomment to enable)
+# reporting:
+#   # Enable detailed reporting
+#   enabled: false
+#   
+#   # Report feature importance scores
+#   include_scores: true
+#   
+#   # Report feature selection statistics
+#   include_stats: true
+#   
+#   # Save feature selection report
+#   save_report: false
+#   report_path: "reports/feature_selection/"
+#   
+#   # Visualization options
+#   visualization:
+#     enabled: false
+#     # Plot types: "importance", "correlation", "selection_path"
+#     plot_types: ["importance", "correlation"]
+#     save_plots: false
+#     plot_path: "plots/feature_selection/"
+
+# Performance optimization
+# performance:
+#   # Parallel processing for feature selection
+#   n_jobs: -1
+#   
+#   # Memory optimization
+#   low_memory: false
+#   
+#   # Progress tracking
+#   verbose: true
