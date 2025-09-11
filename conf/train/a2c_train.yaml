@@ -1,0 +1,4 @@
+defaults:
+  - approach: a2c
+
+_target_: pipelines.a2c_agent.train.a2c.A2CTrainer
