@@ -1,0 +1,4 @@
+defaults:
+  - approach: ppo
+
+_target_: pipelines.a2c_agent.train.ppo.PPOTrainer

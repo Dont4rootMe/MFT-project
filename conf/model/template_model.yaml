@@ -1,0 +1,7 @@
+# Template configuration for model creation
+# Select backbone: cnn or mlp
+
+defaults:
+  - backbone: cnn
+
+_target_: tensortrade.agents.a2c_agent.A2CAgent
