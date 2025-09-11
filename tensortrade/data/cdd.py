@@ -58,22 +58,27 @@ class CryptoDataDownload:
         """
 
         filename = "{}_{}{}_{}.csv".format(exchange_name, quote_symbol, base_symbol, timeframe)
-        base_vc = "Volume {}".format(base_symbol)
+        base_vc = "volume {}".format(base_symbol.lower())
         new_base_vc = "volume_base"
-        quote_vc = "Volume {}".format(quote_symbol)
+        quote_vc = "volume {}".format(quote_symbol.lower())
         new_quote_vc = "volume_quote"
 
-        df = pd.read_csv(self.url + filename, skiprows=1)
+        try:
+            df = pd.read_csv(self.url + filename, skiprows=1)
+            df.columns = df.columns.str.lower()
+        except Exception as e:
+            print(f"Error fetching {self.url + filename}")
+            raise e
+
         df = df[::-1]
-        df = df.drop(["symbol"], axis=1)
-        df = df.rename({base_vc: new_base_vc, quote_vc: new_quote_vc, "Date": "date"}, axis=1)
+        df = df.drop(columns=["symbol"])
+        df = df.rename({base_vc: new_base_vc, quote_vc: new_quote_vc, "date": "date"}, axis=1)
 
         df["unix"] = df["unix"].astype(int)
         df["unix"] = df["unix"].apply(
             lambda x: int(x / 1000) if len(str(x)) == 13 else x
         )
         df["date"] = pd.to_datetime(df["unix"], unit="s")
-
         df = df.set_index("date")
         df.columns = [name.lower() for name in df.columns]
         df = df.reset_index()
@@ -81,6 +86,7 @@ class CryptoDataDownload:
             df = df.drop([new_quote_vc], axis=1)
             df = df.rename({new_base_vc: "volume"}, axis=1)
             return df
+
         return df
 
     def fetch_gemini(self,

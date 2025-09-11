@@ -1,0 +1,32 @@
+# Feature Engineering Configuration for A2C Agent
+
+enabled: true
+
+# Technical Indicators Configuration
+technical_indicators:
+  enabled: true
+  strategies:
+    - "all"  # Generate all available technical indicators
+    # Alternative: specify specific strategies like ["momentum", "overlap", "volatility"]
+  exclude:
+    - "cdl"  # Exclude candlestick patterns (can be noisy)
+    - "cycles"  # Exclude cycle indicators
+
+# Custom Features Configuration
+custom_features:
+  enabled: true
+  lookback_periods: [5, 10, 20, 50]  # Periods for rolling calculations
+  price_features:
+    - "moving_averages"          # Simple moving averages
+    - "exponential_moving_averages"  # Exponential moving averages
+    - "volatility"               # Rolling volatility
+    - "log_returns"              # Log returns for all OHLC
+    - "price_shifts"             # Previous period values
+
+# Quantstats Features Configuration (optional, can be resource intensive)
+quantstats_features:
+  enabled: false  
+  categories:
+    - "risk"
+    - "returns"
+    - "volatility"

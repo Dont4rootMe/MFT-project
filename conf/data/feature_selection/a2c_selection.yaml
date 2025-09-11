@@ -1,0 +1,14 @@
+# Feature Selection Configuration for A2C Agent
+
+per_currency:
+  enabled: false
+  method: variance_corr  # options: variance_corr, pca, topk
+  max_features: null
+  variance_threshold: 0.0
+  correlation_threshold: 0.95
+  n_components: 5
+  k: 20
+
+post_merge:
+  enabled: false
+  method: none
