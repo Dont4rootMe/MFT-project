@@ -1,7 +1,12 @@
 import pandas as pd
 import logging
+import os
+import json
+import hashlib
 from typing import Dict, List
 from tensortrade.data.cdd import CryptoDataDownload
+import yaml
+from omegaconf import OmegaConf
 
 from .feature_engine import FeatureEngineeringProcessor
 from .feature_selection import FeatureSelector
@@ -27,6 +32,7 @@ class DataHandler:
         main_currency: str = "USDT",
         feature_engineering: Dict = None,
         feature_selection: Dict = None,
+        cache: Dict = None,
     ):
         """
         Initialize DataHandler with configuration.
@@ -39,14 +45,27 @@ class DataHandler:
             feature_engineering: Feature engineering configuration
             feature_selection: Feature selection configuration
         """
-        self.symbols = symbols
+        self.symbols = list(symbols)
         self.time_freq = time_freq
         self.exchange = exchange
         self.main_currency = main_currency
         
+        # Convert Hydra configs to plain dictionaries
+        fe_cfg = OmegaConf.to_container(feature_engineering, resolve=True) if feature_engineering else {}
+        fs_cfg = OmegaConf.to_container(feature_selection, resolve=True) if feature_selection else {}
+
         # Initialize processors
-        self.feature_processor = FeatureEngineeringProcessor(feature_engineering or {})
-        self.feature_selector = FeatureSelector(feature_selection or {})
+        self.feature_processor = FeatureEngineeringProcessor(fe_cfg)
+        self.feature_selector = FeatureSelector(fs_cfg)
+
+        # Cache configuration
+        self.cache_config = OmegaConf.to_container(cache, resolve=True) if cache else {}
+        self.cache_enabled = self.cache_config.get("enabled", True)
+        self.cache_dir = self.cache_config.get("dir", "cache")
+        self.checkpoint_name = self.cache_config.get("checkpoint_name")
+        self.cache_id = self.checkpoint_name or self._config_hash()
+        self.cache_path = os.path.join(self.cache_dir, self.cache_id, "data.pkl")
+        self.metadata_path = os.path.join(self.cache_dir, self.cache_id, "config.yaml")
         
         # Internal data storage
         self._processed_data = None
@@ -64,8 +83,18 @@ class DataHandler:
             pd.DataFrame: Processed and ready-to-use data
         """
         if self._processed_data is None:
-            logger.info("Processing data...")
-            self._processed_data = self._run_pipeline()
+            if self.cache_enabled and os.path.exists(self.cache_path):
+                logger.info(f"Loading data from cache: {self.cache_path}")
+                self._processed_data = pd.read_pickle(self.cache_path)
+            else:
+                logger.info("Processing data...")
+                self._processed_data = self._run_pipeline()
+                if self.cache_enabled:
+                    os.makedirs(os.path.dirname(self.cache_path), exist_ok=True)
+                    self._processed_data.to_pickle(self.cache_path)
+                    with open(self.metadata_path, "w") as f:
+                        yaml.safe_dump(self._metadata(), f)
+                    logger.info(f"Cached processed data to {self.cache_path}")
         
         return self._processed_data
     
@@ -111,11 +140,12 @@ class DataHandler:
                 logger.info(f"Fetching {currency}/{self.main_currency} data...")
                 
                 # Fetch raw data from exchange
+                timeframe = 'd' if self.time_freq == '1d' else self.time_freq
                 data = cdd.fetch(
                     self.exchange,
                     self.main_currency,
                     currency,
-                    self.time_freq
+                    timeframe
                 )
                 
                 # Prepare and clean data
@@ -152,7 +182,8 @@ class DataHandler:
         
         # Convert data types
         df['volume'] = pd.to_numeric(df['volume'], errors='coerce')
-        df['date'] = pd.to_datetime(df['date'])
+        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        df.dropna(subset=['date'], inplace=True)
         
         # Sort by date and reset index
         df.sort_values(by='date', ascending=True, inplace=True)
@@ -174,19 +205,25 @@ class DataHandler:
             Dict[str, pd.DataFrame]: Dictionary of processed currency dataframes
         """
         logger.info("Applying feature engineering...")
-        
+
         processed_data = {}
-        
+
         for currency, data in raw_data.items():
             logger.info(f"Processing features for {currency}...")
-            
-            # Generate features using the feature processor
-            processed_data[currency] = self.feature_processor.generate_features(
+
+            features = self.feature_processor.generate_features(
                 data, currency_name=currency
             )
-            
-            logger.info(f"✓ Generated {len(processed_data[currency].columns)} features for {currency}")
-        
+
+            # Per-currency feature selection
+            features = self.feature_selector.select_per_currency(features)
+
+            processed_data[currency] = features
+
+            logger.info(
+                f"✓ Generated {len(features.columns)} features for {currency} after selection"
+            )
+
         return processed_data
     
     def _combine_currencies(self, processed_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
@@ -201,35 +238,60 @@ class DataHandler:
         """
         logger.info("Combining multi-currency data...")
         
-        combined_dfs = []
-        
+        # Determine common date range
+        date_sets = []
+        prefixed_dfs = []
         for currency, df in processed_data.items():
             df_copy = df.copy()
-            
-            # Add currency prefix to all columns except date
+
+            date_col = [col for col in df_copy.columns if 'date' in col.lower()][0]
+            df_copy[date_col] = pd.to_datetime(df_copy[date_col])
+            date_sets.append(set(df_copy[date_col]))
+
+            # Add currency prefix to columns that are not already prefixed
             for col in df_copy.columns:
-                if 'date' not in col.lower():
+                if 'date' in col.lower():
+                    continue
+                if not col.startswith(f"{currency}_"):
                     df_copy.rename(columns={col: f"{currency}_{col}"}, inplace=True)
-            
-            combined_dfs.append(df_copy)
-        
-        # Merge dataframes on date column
-        result = combined_dfs[0]
-        date_col = [col for col in result.columns if 'date' in col.lower()][0]
-        
-        for df in combined_dfs[1:]:
+
+            prefixed_dfs.append((currency, df_copy, date_col))
+
+        if not prefixed_dfs:
+            raise ValueError("No data available to combine")
+
+        # Find intersection of dates and limit to common timeframe
+        common_dates = sorted(set.intersection(*date_sets))
+        if not common_dates:
+            raise ValueError("No common dates across currencies")
+
+        # Trim each dataframe to the common date range
+        trimmed_dfs = []
+        for currency, df_copy, date_col in prefixed_dfs:
+            df_trimmed = df_copy[df_copy[date_col].isin(common_dates)]
+            trimmed_dfs.append(df_trimmed)
+
+        # Merge dataframes on the date column using inner joins
+        result = trimmed_dfs[0]
+        base_date_col = [col for col in result.columns if 'date' in col.lower()][0]
+
+        for df in trimmed_dfs[1:]:
             df_date_col = [col for col in df.columns if 'date' in col.lower()][0]
-            result = pd.merge(result, df, left_on=date_col, right_on=df_date_col, how='outer')
-            
-            # Drop duplicate date column
-            if df_date_col != date_col and df_date_col in result.columns:
+            result = pd.merge(result, df, left_on=base_date_col, right_on=df_date_col, how='inner')
+
+            if df_date_col != base_date_col and df_date_col in result.columns:
                 result.drop(columns=[df_date_col], inplace=True)
-        
+
         # Sort by date and reset index
-        result = result.sort_values(date_col).reset_index(drop=True)
-        
-        logger.info(f"✓ Combined {len(processed_data)} currency datasets into {result.shape}")
-        
+        result = result.sort_values(base_date_col).reset_index(drop=True)
+
+        logger.info(
+            f"✓ Combined {len(processed_data)} currency datasets into {result.shape} with common timeframe"
+        )
+
+        # Convert date column back to string for consistency
+        result[base_date_col] = result[base_date_col].dt.strftime('%Y-%m-%d %H:%M:%S')
+
         return result
     
     def _apply_feature_selection(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -242,11 +304,29 @@ class DataHandler:
         Returns:
             pd.DataFrame: Dataframe with selected features
         """
-        logger.info("Applying feature selection...")
-        
-        # Apply feature selection using the feature selector
-        selected_data = self.feature_selector.select_features(data)
-        
-        logger.info(f"✓ Selected {len(selected_data.columns)} features from {len(data.columns)}")
-        
+        logger.info("Applying post-merge feature selection...")
+
+        selected_data = self.feature_selector.select_post_merge(data)
+
+        logger.info(
+            f"✓ Selected {len(selected_data.columns)} features from {len(data.columns)}"
+        )
+
         return selected_data
+
+    def _metadata(self) -> Dict:
+        """Generate metadata describing the dataset and processing steps."""
+        return {
+            "symbols": self.symbols,
+            "time_freq": self.time_freq,
+            "exchange": self.exchange,
+            "main_currency": self.main_currency,
+            "feature_engineering": self.feature_processor.config,
+            "feature_selection": self.feature_selector.config,
+        }
+
+    def _config_hash(self) -> str:
+        """Compute a stable hash of the configuration for cache identification."""
+        config = self._metadata()
+        config_str = json.dumps(config, sort_keys=True)
+        return hashlib.sha256(config_str.encode()).hexdigest()[:16]

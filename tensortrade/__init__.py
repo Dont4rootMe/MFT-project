@@ -11,6 +11,9 @@ from tensortrade.oms import (
 )
 from . import env
 from . import stochastic
-from . import agents
+try:
+    from . import agents
+except Exception:  # pragma: no cover - optional dependency
+    agents = None
 
 from .version import __version__

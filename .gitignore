@@ -1,5 +1,6 @@
 .snapshots
 data/*
+cache/
 optuna/*
 .DS_Store
 *.pyc
