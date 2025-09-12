@@ -7,6 +7,9 @@ import pandas as pd
 from tensortrade.env.generic import RewardScheme, TradingEnv
 from tensortrade.feed.core import Stream, DataFeed
 import math
+from typing import Union
+from hydra.utils import instantiate
+from omegaconf import DictConfig
 
 
 class TensorTradeRewardScheme(RewardScheme):
@@ -218,6 +221,38 @@ _registry = {
     'risk-adjusted': RiskAdjustedReturns,
     'pbr': PBR,
 }
+
+
+def create(config: Union[str, DictConfig, dict, None], **kwargs) -> TensorTradeRewardScheme:
+    """Create a reward scheme from a configuration."""
+    if config is None:
+        return SimpleProfit(**kwargs)
+
+    if isinstance(config, str):
+        cls = _registry.get(config.lower())
+        if not cls:
+            raise KeyError(f"Unknown reward scheme '{config}'")
+        return cls(**kwargs)
+
+    if isinstance(config, DictConfig):
+        if "_target_" in config:
+            return instantiate(config, **kwargs)
+        config = dict(config)
+
+    if isinstance(config, dict):
+        if "_target_" in config:
+            return instantiate(config, **kwargs)
+        name = config.get("name")
+        params = {k: v for k, v in config.items() if k != "name"}
+        params.update(kwargs)
+        if name:
+            cls = _registry.get(name.lower())
+            if not cls:
+                raise KeyError(f"Unknown reward scheme '{name}'")
+            return cls(**params)
+        raise KeyError("Reward scheme configuration must include 'name' or '_target_'")
+
+    raise TypeError("Unsupported reward scheme configuration type")
 
 
 def get(identifier: str) -> 'TensorTradeRewardScheme':

@@ -11,3 +11,8 @@ env:
   initial_cash: 10000
   window_size: 30
 
+action_scheme:
+  name: simple
+reward_scheme:
+  name: simple
+

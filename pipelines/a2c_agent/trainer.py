@@ -8,64 +8,21 @@ if str(project_root) not in sys.path:
 
 import pandas as pd
 import hydra
-from omegaconf import DictConfig
+import numpy as np
+from omegaconf import DictConfig, OmegaConf
 from hydra.utils import instantiate, to_absolute_path
-from typing import Union, List
+from typing import Union
 
 import tensortrade.env.default as default
-from tensortrade.env.default.actions import BSH, TensorTradeActionScheme
-from tensortrade.env.default.rewards import SimpleProfit
+from tensortrade.env.default import actions as action_api, rewards as reward_api
 from tensortrade.feed.core import DataFeed, Stream, NameSpace
 from tensortrade.oms.exchanges import Exchange
 from tensortrade.oms.services.execution.simulated import execute_order
 from tensortrade.oms.wallets import Wallet, Portfolio
 from tensortrade.oms.instruments import Instrument, registry
-from tensortrade.oms.orders import proportion_order
 from gymnasium.spaces import MultiDiscrete
 
 from pipelines.a2c_agent.train.a2c import A2CTrainer
-
-
-class MultiBSH(TensorTradeActionScheme):
-    """A simple multi-asset extension of the BSH action scheme.
-
-    Each asset wallet toggles between holding base currency and the asset
-    whenever its corresponding action switches between 0 and 1.
-    """
-
-    def __init__(self, cash: Wallet, assets: List[Wallet]):
-        super().__init__()
-        self.cash = cash
-        self.assets = assets
-        self.action = [0] * len(assets)
-        self.listeners: List = []
-
-    @property
-    def action_space(self):
-        return MultiDiscrete([2] * len(self.assets))
-
-    def attach(self, listener):
-        self.listeners += [listener]
-        return self
-
-    def get_orders(self, actions, portfolio: Portfolio):
-        orders = []
-        for i, a in enumerate(actions):
-            if abs(a - self.action[i]) > 0:
-                src = self.cash if self.action[i] == 0 else self.assets[i]
-                tgt = self.assets[i] if self.action[i] == 0 else self.cash
-                if src.balance == 0:
-                    self.action[i] = a
-                    continue
-                orders.append(proportion_order(portfolio, src, tgt, 1.0))
-                self.action[i] = a
-        for listener in self.listeners:
-            listener.on_action(actions)
-        return orders
-
-    def reset(self):
-        super().reset()
-        self.action = [0] * len(self.assets)
 
 
 @hydra.main(config_path="../../conf", config_name="a2c_trainer", version_base=None)
@@ -92,6 +49,19 @@ def main(cfg: DictConfig) -> None:
 
     train_df = data.iloc[:split_idx].reset_index(drop=True)
     valid_df = data.iloc[split_idx:].reset_index(drop=True)
+
+    # Ensure train and validation data have identical feature dimensions
+    train_features = train_df.drop(columns=["date"], errors="ignore").shape[1]
+    valid_features = valid_df.drop(columns=["date"], errors="ignore").shape[1]
+    if train_features != valid_features:
+        raise ValueError(
+            f"Train and validation feature counts differ: {train_features} != {valid_features}"
+        )
+
+    # Propagate inferred input shape to the model configuration
+    input_shape = [train_features, cfg.env.window_size]
+    OmegaConf.set_struct(cfg.model.shared_network, False)
+    cfg.model.shared_network.input_shape = input_shape
 
     assets = cfg.get("assets") or data_handler.symbols
     main_currency = data_handler.main_currency
@@ -142,11 +112,19 @@ def main(cfg: DictConfig) -> None:
         renderer_feed = DataFeed(renderer_streams)
         renderer_feed.compile()
 
-        if len(asset_wallets) == 1:
-            action_scheme = BSH(cash=cash, asset=asset_wallets[0])
-        else:
-            action_scheme = MultiBSH(cash=cash, assets=asset_wallets)
-        reward_scheme = SimpleProfit()
+        action_cfg = cfg.get("action_scheme")
+        try:
+            action_scheme = action_api.create(action_cfg)
+        except TypeError:
+            params = {"cash": cash}
+            if len(asset_wallets) == 1:
+                params["asset"] = asset_wallets[0]
+            else:
+                params["assets"] = asset_wallets
+            action_scheme = action_api.create(action_cfg, **params)
+
+        reward_cfg = cfg.get("reward_scheme")
+        reward_scheme = reward_api.create(reward_cfg)
 
         env = default.create(
             portfolio=portfolio,
@@ -173,12 +151,18 @@ def main(cfg: DictConfig) -> None:
     # ------------------------------------------------------------------
     # Final evaluation and result handling
     # ------------------------------------------------------------------
-    state = valid_env.reset(start_from_time=True)
+    state, _ = valid_env.reset(start_from_time=True)
     done = False
     total_reward = 0.0
     while not done:
-        action = agent.get_action(state)
-        state, reward, done, _ = valid_env.step(action)
+        action_idx = agent.get_action(state)
+        env_action = action_idx
+        if isinstance(valid_env.action_space, MultiDiscrete):
+            env_action = np.array(
+                np.unravel_index(action_idx, valid_env.action_space.nvec)
+            ).astype(int)
+        state, reward, terminated, truncated, _ = valid_env.step(env_action)
+        done = terminated or truncated
         total_reward += reward
 
     results_dir = Path(to_absolute_path(train_config.output_dir))
