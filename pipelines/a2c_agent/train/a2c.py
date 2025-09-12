@@ -195,7 +195,7 @@ class A2CTrainer:
         self._save_checkpoint(steps_done, episode)
 
     def _validate(self):
-        state = self.valid_env.reset()
+        state = self.valid_env.reset(start_from_time=True)
         done = False
         total_reward = 0.0
         while not done:

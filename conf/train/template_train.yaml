@@ -1,7 +1,0 @@
-# Template training configuration
-# choose approach: a2c, dpo or ppo
-defaults:
-  - approach: a2c
-
-# Default trainer (can be overridden by approach)
-_target_: pipelines.a2c_agent.train.a2c.A2CTrainer
