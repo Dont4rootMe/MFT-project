@@ -1,2 +1,0 @@
-_target_: pipelines.a2c_agent.train.dpo.DPOConfig
-n_episodes: 1
