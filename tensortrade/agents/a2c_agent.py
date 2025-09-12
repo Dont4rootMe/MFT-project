@@ -63,7 +63,15 @@ class A2CAgent(Agent):
     ):
         super().__init__()
         self.env = env
-        self.n_actions = env.action_space.n
+        action_space = env.action_space
+        if hasattr(action_space, "n"):
+            self.n_actions = action_space.n
+            self._action_nvec = None
+        elif hasattr(action_space, "nvec"):
+            self.n_actions = int(np.prod(action_space.nvec))
+            self._action_nvec = action_space.nvec
+        else:
+            raise AttributeError("Unsupported action space type")
         # Convert TF style (L, C) to PyTorch (C, L) for Conv1d.
         self.observation_shape = (
             env.observation_space.shape[1],
@@ -153,3 +161,14 @@ class A2CAgent(Agent):
 
     # Training utilities removed. Training is now handled by dedicated
     # trainer classes located under ``pipelines.a2c_agent.train``.
+
+    def train(self, *args, **kwargs):
+        """Stub to satisfy abstract base class requirements.
+
+        Training is managed externally via the pipeline trainers under
+        ``pipelines.a2c_agent.train``. Calling this method directly will
+        raise ``NotImplementedError``.
+        """
+        raise NotImplementedError(
+            "Use A2CTrainer or other trainer classes for optimization."
+        )

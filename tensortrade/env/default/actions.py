@@ -3,7 +3,9 @@ from abc import abstractmethod
 from itertools import product
 from typing import Union, List, Any
 
-from gymnasium.spaces import Space, Discrete
+from gymnasium.spaces import Space, Discrete, MultiDiscrete
+from hydra.utils import instantiate
+from omegaconf import DictConfig
 
 from tensortrade.core import Clock
 from tensortrade.env.generic import ActionScheme, TradingEnv
@@ -170,6 +172,48 @@ class BSH(TensorTradeActionScheme):
     def reset(self):
         super().reset()
         self.action = 0
+
+
+class MultiBSH(TensorTradeActionScheme):
+    """A simple multi-asset extension of the BSH action scheme.
+
+    Each asset wallet toggles between holding base currency and the asset
+    whenever its corresponding action switches between 0 and 1.
+    """
+
+    def __init__(self, cash: 'Wallet', assets: List['Wallet']):
+        super().__init__()
+        self.cash = cash
+        self.assets = assets
+        self.action = [0] * len(assets)
+        self.listeners: List = []
+
+    @property
+    def action_space(self):
+        return MultiDiscrete([2] * len(self.assets))
+
+    def attach(self, listener):
+        self.listeners += [listener]
+        return self
+
+    def get_orders(self, actions, portfolio: 'Portfolio'):
+        orders = []
+        for i, a in enumerate(actions):
+            if abs(a - self.action[i]) > 0:
+                src = self.cash if self.action[i] == 0 else self.assets[i]
+                tgt = self.assets[i] if self.action[i] == 0 else self.cash
+                if src.balance == 0:
+                    self.action[i] = a
+                    continue
+                orders.append(proportion_order(portfolio, src, tgt, 1.0))
+                self.action[i] = a
+        for listener in self.listeners:
+            listener.on_action(actions)
+        return orders
+
+    def reset(self):
+        super().reset()
+        self.action = [0] * len(self.assets)
 
 
 class SimpleOrders(TensorTradeActionScheme):
@@ -399,30 +443,60 @@ class ManagedRiskOrders(TensorTradeActionScheme):
 
 
 _registry = {
-    'bsh': BSH,
-    'simple': SimpleOrders,
-    'managed-risk': ManagedRiskOrders,
+    "bsh": BSH,
+    "multi_bsh": MultiBSH,
+    "simple": SimpleOrders,
+    "managed-risk": ManagedRiskOrders,
 }
 
 
-def get(identifier: str) -> 'ActionScheme':
-    """Gets the `ActionScheme` that matches with the identifier.
+def create(config: Union[str, DictConfig, dict, None], **kwargs) -> TensorTradeActionScheme:
+    """Create an action scheme from a configuration.
 
     Parameters
     ----------
-    identifier : str
-        The identifier for the `ActionScheme`.
-
-    Returns
-    -------
-    'ActionScheme'
-        The action scheme associated with the `identifier`.
-
-    Raises
-    ------
-    KeyError:
-        Raised if the `identifier` is not associated with any `ActionScheme`.
+    config : Union[str, DictConfig, dict, None]
+        Either a string identifier, a dictionary with ``name`` and parameters,
+        a Hydra style config with ``_target_``, or ``None`` for defaults.
+    **kwargs : dict
+        Additional parameters forwarded to the action scheme constructor.
     """
-    if identifier not in _registry.keys():
+
+    if config is None:
+        if "assets" in kwargs and kwargs.get("assets") and len(kwargs["assets"]) > 1:
+            return MultiBSH(**kwargs)
+        return BSH(**kwargs)
+
+    if isinstance(config, str):
+        cls = _registry.get(config.lower())
+        if not cls:
+            raise KeyError(f"Unknown action scheme '{config}'")
+        return cls(**kwargs)
+
+    if isinstance(config, DictConfig):
+        if "_target_" in config:
+            return instantiate(config, **kwargs)
+        config = dict(config)
+
+    if isinstance(config, dict):
+        if "_target_" in config:
+            return instantiate(config, **kwargs)
+        name = config.get("name")
+        params = {k: v for k, v in config.items() if k != "name"}
+        params.update(kwargs)
+        if name:
+            cls = _registry.get(name.lower())
+            if not cls:
+                raise KeyError(f"Unknown action scheme '{name}'")
+            return cls(**params)
+        raise KeyError("Action scheme configuration must include 'name' or '_target_'")
+
+    raise TypeError("Unsupported action scheme configuration type")
+
+
+def get(identifier: str, **kwargs) -> TensorTradeActionScheme:
+    """Backward compatible registry lookup."""
+    cls = _registry.get(identifier)
+    if not cls:
         raise KeyError(f"Identifier {identifier} is not associated with any `ActionScheme`.")
-    return _registry[identifier]()
+    return cls(**kwargs)
