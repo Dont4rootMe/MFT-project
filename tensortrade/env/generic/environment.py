@@ -142,7 +142,7 @@ class TradingEnv(gymnasium.Env, TimeIndexed):
 
         return obs, reward, terminated, truncated, info
 
-    def reset(self,seed = None, options = None) -> tuple["np.array", dict[str, Any]]:
+    def reset(self,seed = None, options = None, start_from_time = False) -> tuple["np.array", dict[str, Any]]:
         """Resets the environment.
 
         Returns
@@ -150,11 +150,11 @@ class TradingEnv(gymnasium.Env, TimeIndexed):
         obs : `np.array`
             The first observation of the environment.
         """
-        if self.random_start_pct > 0.00:
+        if start_from_time or self.random_start_pct <= 0.00:
+            random_start = 0
+        else:
             size = len(self.observer.feed.process[-1].inputs[0].iterable)
             random_start = randint(0, int(size * self.random_start_pct))
-        else:
-            random_start = 0
 
         self.episode_id = str(uuid.uuid4())
         self.clock.reset()

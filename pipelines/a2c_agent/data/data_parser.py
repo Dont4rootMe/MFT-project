@@ -86,6 +86,16 @@ class DataHandler:
             if self.cache_enabled and os.path.exists(self.cache_path):
                 logger.info(f"Loading data from cache: {self.cache_path}")
                 self._processed_data = pd.read_pickle(self.cache_path)
+                # Synchronize symbol list with metadata if available
+                if os.path.exists(self.metadata_path):
+                    with open(self.metadata_path, "r") as f:
+                        meta = yaml.safe_load(f) or {}
+                    self.symbols = meta.get("symbols", self.symbols)
+                else:
+                    self.symbols = sorted({
+                        col.split("_")[0] for col in self._processed_data.columns
+                        if "_" in col
+                    })
             else:
                 logger.info("Processing data...")
                 self._processed_data = self._run_pipeline()
@@ -134,7 +144,7 @@ class DataHandler:
         
         cdd = CryptoDataDownload()
         raw_data = {}
-        
+
         for currency in self.symbols:
             try:
                 logger.info(f"Fetching {currency}/{self.main_currency} data...")
@@ -165,7 +175,10 @@ class DataHandler:
         
         if not raw_data:
             raise ValueError("Failed to fetch data for any currency")
-        
+
+        # Update the symbol list to reflect successfully fetched currencies.
+        self.symbols = list(raw_data.keys())
+
         return raw_data
     
     def _prepare_raw_data(self, df: pd.DataFrame) -> pd.DataFrame:

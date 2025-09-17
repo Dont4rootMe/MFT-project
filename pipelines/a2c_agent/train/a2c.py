@@ -10,6 +10,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from gymnasium.spaces import MultiDiscrete
 
 from tensortrade.agents import ReplayMemory
 from tensortrade.agents.a2c_agent import A2CTransition
@@ -161,18 +162,24 @@ class A2CTrainer:
             cfg.n_episodes = np.iinfo(np.int32).max
 
         while episode < cfg.n_episodes:
-            state = self.train_env.reset()
+            state, _ = self.train_env.reset()
             done = False
             while not done:
                 threshold = cfg.eps_end + (cfg.eps_start - cfg.eps_end) * np.exp(
                     -steps_done / cfg.eps_decay_steps
                 )
-                action = self.agent.get_action(state, threshold=threshold)
-                next_state, reward, done, _ = self.train_env.step(action)
+                action_idx = self.agent.get_action(state, threshold=threshold)
+                env_action = action_idx
+                if isinstance(self.train_env.action_space, MultiDiscrete):
+                    env_action = np.array(
+                        np.unravel_index(action_idx, self.train_env.action_space.nvec)
+                    ).astype(int)
+                next_state, reward, terminated, truncated, _ = self.train_env.step(env_action)
+                done = terminated or truncated
 
                 with torch.no_grad():
                     _, value = self.agent._infer(state)
-                memory.push(state, action, reward, done, value)
+                memory.push(state, action_idx, reward, done, value)
 
                 state = next_state
                 steps_done += 1
@@ -195,11 +202,17 @@ class A2CTrainer:
         self._save_checkpoint(steps_done, episode)
 
     def _validate(self):
-        state = self.valid_env.reset()
+        state, _ = self.valid_env.reset(start_from_time=True)
         done = False
         total_reward = 0.0
         while not done:
-            action = self.agent.get_action(state)
-            state, reward, done, _ = self.valid_env.step(action)
+            action_idx = self.agent.get_action(state)
+            env_action = action_idx
+            if isinstance(self.valid_env.action_space, MultiDiscrete):
+                env_action = np.array(
+                    np.unravel_index(action_idx, self.valid_env.action_space.nvec)
+                ).astype(int)
+            state, reward, terminated, truncated, _ = self.valid_env.step(env_action)
+            done = terminated or truncated
             total_reward += reward
         print(f"Validation reward: {total_reward:.4f}")
