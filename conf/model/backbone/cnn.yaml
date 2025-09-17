@@ -1,1 +1,1 @@
-_target_: pipelines.a2c_agent.models.cnn.CNNBackbone
+_target_: pipelines.rl_agent_policy.models.cnn.CNNBackbone

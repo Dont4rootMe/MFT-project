@@ -1,18 +1,42 @@
 defaults:
-  - data: a2c_data
+  - data: default_data
   - model: a2c_model
   - train: a2c_train
 
-validation_size: 0.2  # fraction of data or absolute count for validation
 assets: null  # optional list of asset symbols to trade; defaults to data symbols
 
+run_name: a2c_train
+output_dir: outputs/${now:%Y-%m-%d}/${run_name}
+
+debug_logging: false
+
 env:
-  exchange: "sim"
+  exchange: "simulator"
   initial_cash: 10000
   window_size: 30
+  assets: null
+  assets_initial: 
+    - 100
+    - 100
+
+validation: 
+  validation_size: 0.2  # fraction of data or absolute count for validation
+
+  renderers: # all or some of the renderers from renderers.py
+    - plotly
+    - sharpe-plotly
+    - pnl-extrema-plotly
+    - roi-plotly
+    - drawdown-plotly
+    - pnl-plotly
 
 action_scheme:
   name: simple
 reward_scheme:
   name: simple
 
+hydra:
+  run:
+    dir: ${output_dir}
+  job:
+    name: ${run_name} 

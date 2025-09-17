@@ -1,4 +1,4 @@
 _target_: tensortrade.agents.a2c_agent.A2CAgent
 
 shared_network:
-  _target_: pipelines.a2c_agent.models.cnn.CNNBackbone
+  _target_: pipelines.rl_agent_policy.models.cnn.CNNBackbone

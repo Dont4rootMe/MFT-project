@@ -10,5 +10,5 @@ class TensorTradeInformer(Informer):
     def info(self, env: 'TradingEnv') -> dict:
         return {
             'step': self.clock.step,
-            'net_worth': env.action_scheme.portfolio.net_worth
+            'net_worth': env.action_scheme.portfolio.net_worth,
         }

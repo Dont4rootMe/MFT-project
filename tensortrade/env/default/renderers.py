@@ -21,6 +21,7 @@ from abc import abstractmethod
 from datetime import datetime
 from typing import Union, Tuple
 from collections import OrderedDict
+from collections.abc import Iterable
 
 import numpy as np
 import pandas as pd
@@ -116,7 +117,7 @@ class BaseRenderer(Renderer):
 
         return log_entry
 
-    def render(self, env: 'TradingEnv', **kwargs):
+    def render(self, env: 'TradingEnv',  **kwargs):
 
         price_history = None
         if len(env.observer.renderer_history) > 0:
@@ -131,7 +132,7 @@ class BaseRenderer(Renderer):
             max_steps=kwargs.get("max_steps", None),
             price_history=price_history,
             net_worth=performance.net_worth,
-            performance=performance.drop(columns=['base_symbol']),
+            performance=performance,
             trades=env.action_scheme.broker.trades
         )
 
@@ -169,7 +170,7 @@ class BaseRenderer(Renderer):
         """
         raise NotImplementedError()
 
-    def save(self) -> None:
+    def save(self, root_path: str | None = None) -> None:
         """Saves the rendering of the `TradingEnv`.
         """
         pass
@@ -241,7 +242,7 @@ class FileLogger(BaseRenderer):
     def __init__(self,
                  filename: str = None,
                  path: str = 'log',
-                 log_format: str = None,
+                 log_format: str = 'html',
                  timestamp_format: str = None) -> None:
         super().__init__()
         _check_path(path)
@@ -335,7 +336,7 @@ class PlotlyTradingChart(BaseRenderer):
                  display: bool = True,
                  height: int = None,
                  timestamp_format: str = '%Y-%m-%d %H:%M:%S',
-                 save_format: str = None,
+                 save_format: str = 'html',
                  path: str = 'charts',
                  filename_prefix: str = 'chart_',
                  auto_open_html: bool = False,
@@ -349,49 +350,104 @@ class PlotlyTradingChart(BaseRenderer):
         self._include_plotlyjs = include_plotlyjs
         self._auto_open_html = auto_open_html
 
-        if self._save_format and self._path and not os.path.exists(path):
-            os.mkdir(path)
+        # if self._save_format and self._path and not os.path.exists(path):
+        #     os.mkdir(path)
 
         self.fig = None
-        self._price_chart = None
+        self._price_charts = {}  # Dictionary to store price charts for each currency
         self._volume_chart = None
         self._performance_chart = None
         self._net_worth_chart = None
         self._base_annotations = None
         self._last_trade_step = 0
         self._show_chart = display
+        self._currencies = []  # List to store detected currencies
 
-    def _create_figure(self, performance_keys: dict) -> None:
+    def _detect_currencies(self, price_history: pd.DataFrame) -> list:
+        """Detect currencies from price_history columns ending with '_open'.
+        
+        Parameters
+        ----------
+        price_history : pd.DataFrame
+            The price history DataFrame
+            
+        Returns
+        -------
+        list
+            List of detected currency names
+        """
+        currencies = []
+        for col in price_history.columns:
+            if col.endswith('_open'):
+                currency = col[:-5]  # Remove '_open' suffix
+                currencies.append(currency)
+            elif col == 'open':  # Single currency case
+                currencies.append('default')
+        
+        return currencies
+
+    def _create_figure(self, performance_keys: dict, currencies: list) -> None:
+        # Calculate number of rows needed: currencies + volume + performance + net_worth
+        n_currencies = len(currencies)
+        total_rows = n_currencies + 3  # currencies + volume + performance + net_worth
+        
+        # Calculate row heights dynamically
+        price_height_per_currency = 0.6 / n_currencies if n_currencies > 0 else 0.6
+        row_heights = [price_height_per_currency] * n_currencies + [0.15, 0.15, 0.1]
+        
         fig = make_subplots(
-            rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.03,
-            row_heights=[0.55, 0.15, 0.15, 0.15],
+            rows=total_rows, cols=1, shared_xaxes=True, vertical_spacing=0.02,
+            row_heights=row_heights,
+            subplot_titles=[f'{currency.upper()} Price' for currency in currencies] + 
+                          ['Volume', 'Performance', 'Net Worth']
         )
-        fig.add_trace(go.Candlestick(name='Price', xaxis='x1', yaxis='y1',
-                                     showlegend=False), row=1, col=1)
+        
+        # Add candlestick chart for each currency
+        for i, currency in enumerate(currencies):
+            fig.add_trace(go.Candlestick(name=f'{currency.upper()} Price', 
+                                       showlegend=False), row=i+1, col=1)
+        
         fig.update_layout(xaxis_rangeslider_visible=False)
 
+        # Add volume chart (after all currency charts)
+        volume_row = n_currencies + 1
         fig.add_trace(go.Bar(name='Volume', showlegend=False,
                              marker={'color': 'DodgerBlue'}),
-                      row=2, col=1)
+                      row=volume_row, col=1)
 
+        # Add performance charts
+        performance_row = n_currencies + 2
         for k in performance_keys:
-            fig.add_trace(go.Scatter(mode='lines', name=k), row=3, col=1)
+            fig.add_trace(go.Scatter(mode='lines', name=k), row=performance_row, col=1)
 
+        # Add net worth chart
+        net_worth_row = n_currencies + 3
         fig.add_trace(go.Scatter(mode='lines', name='Net Worth', marker={'color': 'DarkGreen'}),
-                      row=4, col=1)
+                      row=net_worth_row, col=1)
 
         fig.update_xaxes(linecolor='Grey', gridcolor='Gainsboro')
         fig.update_yaxes(linecolor='Grey', gridcolor='Gainsboro')
-        fig.update_xaxes(title_text='Price', row=1)
-        fig.update_xaxes(title_text='Volume', row=2)
-        fig.update_xaxes(title_text='Performance', row=3)
-        fig.update_xaxes(title_text='Net Worth', row=4)
+        
+        # Update axis titles for each currency
+        for i, currency in enumerate(currencies):
+            fig.update_xaxes(title_text=f'{currency.upper()} Price', row=i+1)
+        
+        fig.update_xaxes(title_text='Volume', row=volume_row)
+        fig.update_xaxes(title_text='Performance', row=performance_row)
+        fig.update_xaxes(title_text='Net Worth', row=net_worth_row)
         fig.update_xaxes(title_standoff=7, title_font=dict(size=12))
 
         self.fig = go.FigureWidget(fig)
-        self._price_chart = self.fig.data[0]
-        self._volume_chart = self.fig.data[1]
-        self._performance_chart = self.fig.data[2]
+        
+        # Store references to price charts for each currency
+        self._price_charts = {}
+        for i, currency in enumerate(currencies):
+            self._price_charts[currency] = self.fig.data[i]
+        
+        # Store references to other charts (adjust indices based on number of currencies)
+        chart_start_idx = n_currencies
+        self._volume_chart = self.fig.data[chart_start_idx]
+        self._performance_chart = self.fig.data[chart_start_idx + 1]
         self._net_worth_chart = self.fig.data[-1]
 
         self.fig.update_annotations({'font': {'size': 12}})
@@ -501,24 +557,53 @@ class PlotlyTradingChart(BaseRenderer):
         if trades is None:
             raise ValueError("renderers() is missing required positional argument 'trades'.")
 
-        if not self.fig:
-            self._create_figure(performance.keys())
+        # Detect currencies from price_history
+        currencies = self._detect_currencies(price_history)
+        
+        if not self.fig or self._currencies != currencies:
+            self._currencies = currencies
+            self._create_figure(performance.keys(), currencies)
 
         if self._show_chart:  # ensure chart visibility through notebook cell reruns
             display(self.fig)
 
         self.fig.layout.title = self._create_log_entry(episode, max_episodes, step, max_steps)
-        self._price_chart.update(dict(
-            open=price_history['open'],
-            high=price_history['high'],
-            low=price_history['low'],
-            close=price_history['close']
-        ))
+        
+        # Update price charts for each currency
+        for currency in currencies:
+            if currency == 'default':
+                # Single currency case
+                open_col, high_col, low_col, close_col = 'open', 'high', 'low', 'close'
+            else:
+                # Multi-currency case with prefixes
+                open_col = f'{currency}_open'
+                high_col = f'{currency}_high'
+                low_col = f'{currency}_low'
+                close_col = f'{currency}_close'
+            
+            self._price_charts[currency].update(dict(
+                open=price_history[open_col],
+                high=price_history[high_col],
+                low=price_history[low_col],
+                close=price_history[close_col]
+            ))
+        
         self.fig.layout.annotations += self._create_trade_annotations(trades, price_history)
 
-        self._volume_chart.update({'y': price_history['volume']})
+        # Update volume chart - handle both single and multi-currency cases
+        if 'volume' in price_history.columns:
+            self._volume_chart.update({'y': price_history['volume']})
+        else:
+            # For multi-currency, we might need to aggregate volumes or use first currency
+            volume_cols = [col for col in price_history.columns if col.endswith('_volume')]
+            if volume_cols:
+                # Use the first currency's volume as default, or sum all volumes
+                total_volume = price_history[volume_cols].sum(axis=1)
+                self._volume_chart.update({'y': total_volume})
 
-        for trace in self.fig.select_traces(row=3):
+        # Update performance charts (row number is now n_currencies + 2)
+        performance_row = len(currencies) + 2
+        for trace in self.fig.select_traces(row=performance_row):
             trace.update({'y': performance[trace.name]})
 
         self._net_worth_chart.update({'y': net_worth})
@@ -526,7 +611,7 @@ class PlotlyTradingChart(BaseRenderer):
         if self._show_chart:
             self.fig.show()
 
-    def save(self) -> None:
+    def save(self, root_path: str | None = None) -> None:
         """Saves the current chart to a file.
 
         Notes
@@ -542,7 +627,10 @@ class PlotlyTradingChart(BaseRenderer):
         _check_path(self._path)
 
         filename = _create_auto_file_name(self._filename_prefix, self._save_format)
-        filename = os.path.join(self._path, filename)
+        if root_path is not None:
+            filename = os.path.join(root_path, filename)
+        else:
+            filename = os.path.join(self._path, filename)
         if self._save_format == 'html':
             self.fig.write_html(file=filename, include_plotlyjs='cdn', auto_open=self._auto_open_html)
         else:
@@ -550,6 +638,8 @@ class PlotlyTradingChart(BaseRenderer):
 
     def reset(self) -> None:
         self._last_trade_step = 0
+        self._currencies = []
+        self._price_charts = {}
         if self.fig is None:
             return
 
@@ -575,7 +665,7 @@ class MatplotlibTradingChart(BaseRenderer):
     """
     def __init__(self,
                  display: bool = True,
-                 save_format: str = None,
+                 save_format: str = 'png',
                  path: str = 'charts',
                  filename_prefix: str = 'chart_') -> None:
         super().__init__()
@@ -731,7 +821,7 @@ class MatplotlibTradingChart(BaseRenderer):
         plt.setp(self.net_worth_ax.get_xticklabels(), visible=False)
         plt.pause(0.001)
 
-    def save(self) -> None:
+    def save(self, root_path: str | None = None) -> None:
         """Saves the rendering of the `TradingEnv`.
         """
         if not self._save_format:
@@ -742,7 +832,10 @@ class MatplotlibTradingChart(BaseRenderer):
 
         _check_path(self._path)
         filename = _create_auto_file_name(self._filename_prefix, self._save_format)
-        filename = os.path.join(self._path, filename)
+        if root_path is not None:
+            filename = os.path.join(root_path, filename)
+        else:
+            filename = os.path.join(self._path, filename)
         self.fig.savefig(filename, format=self._save_format)
 
     def reset(self) -> None:
@@ -755,15 +848,720 @@ class MatplotlibTradingChart(BaseRenderer):
         self._df = None
 
 
+
+def _pnl_series(net_worth: 'pd.Series') -> 'pd.Series':
+    """Cumulative Profit/Loss in base currency since start."""
+    if net_worth is None or len(net_worth) == 0:
+        raise ValueError("`net_worth` Series is empty; cannot compute PnL.")
+    return net_worth - net_worth.iloc[0]
+def _rolling_sharpe_from_net_worth(net_worth: 'pd.Series',
+                                   window: int = 30,
+                                   annualize: bool = True,
+                                   periods_per_year: int = 252) -> 'pd.Series':
+    """Compute rolling Sharpe from net worth. Risk-free assumed zero."""
+    if net_worth is None or len(net_worth) == 0:
+        raise ValueError("`net_worth` Series is empty; cannot compute Sharpe.")
+    rets = net_worth.pct_change().fillna(0.0)
+    mean = rets.rolling(window).mean()
+    std = rets.rolling(window).std(ddof=1)
+    sr = mean / std
+    if annualize:
+        sr = np.sqrt(periods_per_year) * sr
+    sr.name = f"Sharpe(window={window})"
+    return sr
+
+
+class SharpePlotlyRenderer(BaseRenderer):
+    """Plots rolling Sharpe ratio computed from net worth using Plotly."""
+    def __init__(self,
+                 display: bool = True,
+                 height: int | None = 500,
+                 window: int = 30,
+                 annualize: bool = True,
+                 periods_per_year: int = 252,
+                 save_format: str | None = 'html',
+                 path: str = 'charts',
+                 filename_prefix: str = 'sharpe_') -> None:
+        super().__init__()
+        self._height = height
+        self._show_chart = display
+        self._window = window
+        self._annualize = annualize
+        self._ppy = periods_per_year
+        self._save_format = save_format
+        self._path = path
+        self._filename_prefix = filename_prefix
+        self.fig = None
+        if self._save_format and self._path and not os.path.exists(path):
+            os.mkdir(path)
+
+    def _ensure_fig(self):
+        if self.fig is None:
+            if not importlib.util.find_spec("plotly"):
+                raise RuntimeError("Plotly is not installed but required for SharpePlotlyRenderer.")
+            fig = go.Figure()
+            fig.update_layout(template='plotly_white', height=self._height, margin=dict(t=50))
+            fig.add_scatter(mode='lines', name='Sharpe')
+            self.fig = go.FigureWidget(fig)
+
+    def render_env(self,
+                   episode: int = None,
+                   max_episodes: int = None,
+                   step: int = None,
+                   max_steps: int = None,
+                   price_history: 'pd.DataFrame' = None,
+                   net_worth: 'pd.Series' = None,
+                   performance: 'pd.DataFrame' = None,
+                   trades: 'OrderedDict' = None) -> None:
+
+        sr = _rolling_sharpe_from_net_worth(net_worth, self._window, self._annualize, self._ppy)
+        self._ensure_fig()
+        self.fig.layout.title = self._create_log_entry(episode, max_episodes, step, max_steps)
+        self.fig.data[0].update({'x': sr.index, 'y': sr, 'name': sr.name})
+        if self._show_chart:
+            display(self.fig)
+            self.fig.show()
+
+    def save(self, root_path: str | None = None) -> None:
+        if not self._save_format:
+            return
+        valid_formats = ['html', 'png', 'jpeg', 'webp', 'svg', 'pdf', 'eps']
+        _check_valid_format(valid_formats, self._save_format)
+        _check_path(self._path)
+        filename = _create_auto_file_name(self._filename_prefix, self._save_format)
+        filename = os.path.join(root_path or self._path, filename)
+        if self._save_format == 'html':
+            self.fig.write_html(file=filename, include_plotlyjs='cdn', auto_open=False)
+        else:
+            self.fig.write_image(filename)
+
+    def reset(self) -> None:
+        self.fig = None
+
+
+class SharpeMatplotlibRenderer(BaseRenderer):
+    """Plots rolling Sharpe ratio computed from net worth using Matplotlib."""
+    def __init__(self,
+                 display: bool = True,
+                 window: int = 30,
+                 annualize: bool = True,
+                 periods_per_year: int = 252,
+                 save_format: str | None = 'png',
+                 path: str = 'charts',
+                 filename_prefix: str = 'sharpe_') -> None:
+        super().__init__()
+        self._show_chart = display
+        self._window = window
+        self._annualize = annualize
+        self._ppy = periods_per_year
+        self._save_format = save_format
+        self._path = path
+        self._filename_prefix = filename_prefix
+        self.fig = None
+        self.ax = None
+        if self._save_format and self._path and not os.path.exists(path):
+            os.mkdir(path)
+
+    def _ensure_fig(self):
+        if self.fig is None:
+            self.fig, self.ax = plt.subplots()
+
+    def render_env(self,
+                   episode: int = None,
+                   max_episodes: int = None,
+                   step: int = None,
+                   max_steps: int = None,
+                   price_history: 'pd.DataFrame' = None,
+                   net_worth: 'pd.Series' = None,
+                   performance: 'pd.DataFrame' = None,
+                   trades: 'OrderedDict' = None) -> None:
+
+        sr = _rolling_sharpe_from_net_worth(net_worth, self._window, self._annualize, self._ppy)
+        self._ensure_fig()
+        self.ax.clear()
+        self.ax.plot(sr.index, sr)
+        self.ax.set_title(self._create_log_entry(episode, max_episodes, step, max_steps))
+        self.ax.set_xlabel('Time')
+        self.ax.set_ylabel(sr.name)
+        if self._show_chart:
+            plt.show(block=False)
+            plt.pause(0.001)
+
+    def save(self, root_path: str | None = None) -> None:
+        if not self._save_format:
+            return
+        valid_formats = ['png', 'jpeg', 'svg', 'pdf']
+        _check_valid_format(valid_formats, self._save_format)
+        _check_path(self._path)
+        filename = _create_auto_file_name(self._filename_prefix, self._save_format)
+        filename = os.path.join(root_path or self._path, filename)
+        self.fig.savefig(filename, format=self._save_format)
+
+    def reset(self) -> None:
+        self.fig = None
+        self.ax = None
+
+
+# 3) PnL extrema (max delta rise / delta downfall) renderers (Plotly / Matplotlib)
+def _pnl_extrema_series(net_worth: 'pd.Series') -> tuple['pd.Series', 'pd.Series']:
+    """For each timestamp y, compute:
+       - max_delta_rise[y]  = pnl[y] - min_{x<=y} pnl[x]
+       - max_delta_fall[y]  = pnl[y] - max_{x<=y} pnl[x]   (typically ≤ 0)
+       where pnl = net_worth - net_worth.iloc[0].
+    """
+    if net_worth is None or len(net_worth) == 0:
+        raise ValueError("`net_worth` Series is empty; cannot compute PnL extrema.")
+    pnl = _pnl_series(net_worth)
+    running_min = pnl.cummin()
+    running_max = pnl.cummax()
+    max_delta_rise = pnl - running_min
+    max_delta_fall = pnl - running_max
+    max_delta_rise.name = "Max Δ Rise (since start)"
+    max_delta_fall.name = "Max Δ Downfall (since start)"
+    return max_delta_rise, max_delta_fall
+
+
+class PnLExtremaPlotlyRenderer(BaseRenderer):
+    """Plots time series of max delta rise and max delta downfall in two subplots (Plotly)."""
+    def __init__(self,
+                 display: bool = True,
+                 height: int | None = 600,
+                 save_format: str | None = 'html',
+                 path: str = 'charts',
+                 filename_prefix: str = 'pnl_extrema_') -> None:
+        super().__init__()
+        self._height = height
+        self._show_chart = display
+        self._save_format = save_format
+        self._path = path
+        self._filename_prefix = filename_prefix
+        self.fig = None
+        if self._save_format and self._path and not os.path.exists(path):
+            os.mkdir(path)
+
+    def _ensure_fig(self):
+        if self.fig is None:
+            if not importlib.util.find_spec("plotly"):
+                raise RuntimeError("Plotly is not installed but required for PnLExtremaPlotlyRenderer.")
+            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.06,
+                                subplot_titles=("Max Δ Rise", "Max Δ Downfall"))
+            fig.update_layout(template='plotly_white', height=self._height, margin=dict(t=80))
+            fig.add_scatter(mode='lines', name='Max Δ Rise', row=1, col=1)
+            fig.add_scatter(mode='lines', name='Max Δ Downfall', row=2, col=1)
+            self.fig = go.FigureWidget(fig)
+
+    def render_env(self,
+                   episode: int = None,
+                   max_episodes: int = None,
+                   step: int = None,
+                   max_steps: int = None,
+                   price_history: 'pd.DataFrame' = None,
+                   net_worth: 'pd.Series' = None,
+                   performance: 'pd.DataFrame' = None,
+                   trades: 'OrderedDict' = None) -> None:
+
+        up, down = _pnl_extrema_series(net_worth)
+        self._ensure_fig()
+        self.fig.layout.title = self._create_log_entry(episode, max_episodes, step, max_steps)
+        # Update traces
+        self.fig.data[0].update({'x': up.index, 'y': up})
+        self.fig.data[1].update({'x': down.index, 'y': down})
+        if self._show_chart:
+            display(self.fig)
+            self.fig.show()
+
+    def save(self, root_path: str | None = None) -> None:
+        if not self._save_format:
+            return
+        valid_formats = ['html', 'png', 'jpeg', 'webp', 'svg', 'pdf', 'eps']
+        _check_valid_format(valid_formats, self._save_format)
+        _check_path(self._path)
+        filename = _create_auto_file_name(self._filename_prefix, self._save_format)
+        filename = os.path.join(root_path or self._path, filename)
+        if self._save_format == 'html':
+            self.fig.write_html(file=filename, include_plotlyjs='cdn', auto_open=False)
+        else:
+            self.fig.write_image(filename)
+
+    def reset(self) -> None:
+        self.fig = None
+
+
+class PnLExtremaMatplotlibRenderer(BaseRenderer):
+    """Plots time series of max delta rise and max delta downfall in two subplots (Matplotlib)."""
+    def __init__(self,
+                 display: bool = True,
+                 save_format: str | None = 'png',
+                 path: str = 'charts',
+                 filename_prefix: str = 'pnl_extrema_') -> None:
+        super().__init__()
+        self._show_chart = display
+        self._save_format = save_format
+        self._path = path
+        self._filename_prefix = filename_prefix
+        self.fig = None
+        self.ax_up = None
+        self.ax_down = None
+        if self._save_format and self._path and not os.path.exists(path):
+            os.mkdir(path)
+
+    def _ensure_fig(self):
+        if self.fig is None:
+            self.fig, (self.ax_up, self.ax_down) = plt.subplots(2, 1, sharex=True)
+            self.fig.subplots_adjust(hspace=0.25)
+
+    def render_env(self,
+                   episode: int = None,
+                   max_episodes: int = None,
+                   step: int = None,
+                   max_steps: int = None,
+                   price_history: 'pd.DataFrame' = None,
+                   net_worth: 'pd.Series' = None,
+                   performance: 'pd.DataFrame' = None,
+                   trades: 'OrderedDict' = None) -> None:
+
+        up, down = _pnl_extrema_series(net_worth)
+        self._ensure_fig()
+        self.ax_up.clear()
+        self.ax_down.clear()
+
+        self.ax_up.plot(up.index, up)
+        self.ax_up.set_title("Max Δ Rise")
+
+        self.ax_down.plot(down.index, down)
+        self.ax_down.set_title("Max Δ Downfall")
+
+        self.fig.suptitle(self._create_log_entry(episode, max_episodes, step, max_steps))
+        self.ax_down.set_xlabel('Time')
+        if self._show_chart:
+            plt.show(block=False)
+            plt.pause(0.001)
+
+    def save(self, root_path: str | None = None) -> None:
+        if not self._save_format:
+            return
+        valid_formats = ['png', 'jpeg', 'svg', 'pdf']
+        _check_valid_format(valid_formats, self._save_format)
+        _check_path(self._path)
+        filename = _create_auto_file_name(self._filename_prefix, self._save_format)
+        filename = os.path.join(root_path or self._path, filename)
+        self.fig.savefig(filename, format=self._save_format)
+
+    def reset(self) -> None:
+        self.fig = None
+        self.ax_up = None
+        self.ax_down = None
+
+
+#
+# --- ROI and Drawdown helpers ---
+def _roi_series(net_worth: 'pd.Series', scale_100: bool = True) -> 'pd.Series':
+    """Return-on-Investment since start. ROI_t = NW_t / NW_0 - 1."""
+    if net_worth is None or len(net_worth) == 0:
+        raise ValueError("`net_worth` Series is empty; cannot compute ROI.")
+    nw0 = net_worth.iloc[0]
+    if nw0 == 0:
+        raise ZeroDivisionError("Initial net worth is zero; cannot compute ROI.")
+    roi = net_worth / nw0 - 1.0
+    if scale_100:
+        roi = 100.0 * roi
+        roi.name = "ROI % (since start)"
+    else:
+        roi.name = "ROI (fraction, since start)"
+    return roi
+
+
+def _drawdown_series(net_worth: 'pd.Series', scale_100: bool = True) -> 'pd.Series':
+    """Drawdown series (≤ 0): DD_t = NW_t / max_{τ≤t} NW_τ - 1."""
+    if net_worth is None or len(net_worth) == 0:
+        raise ValueError("`net_worth` Series is empty; cannot compute Drawdown.")
+    running_max = net_worth.cummax()
+    dd = net_worth / running_max - 1.0
+    if scale_100:
+        dd = 100.0 * dd
+        dd.name = "Drawdown % (≤0)"
+    else:
+        dd.name = "Drawdown (fraction, ≤0)"
+    return dd
+
+
+# --- ROI Renderers (Plotly / Matplotlib) ---
+class ROIPlotlyRenderer(BaseRenderer):
+    """Plots ROI (since start) computed from net worth using Plotly."""
+    def __init__(self,
+                 display: bool = True,
+                 height: int | None = 500,
+                 save_format: str | None = None,
+                 path: str = 'charts',
+                 filename_prefix: str = 'roi_') -> None:
+        super().__init__()
+        self._height = height
+        self._show_chart = display
+        self._save_format = save_format
+        self._path = path
+        self._filename_prefix = filename_prefix
+        self.fig = None
+        if self._save_format and self._path and not os.path.exists(path):
+            os.mkdir(path)
+
+    def _ensure_fig(self):
+        if self.fig is None:
+            if not importlib.util.find_spec("plotly"):
+                raise RuntimeError("Plotly is not installed but required for ROIPlotlyRenderer.")
+            fig = go.Figure()
+            fig.update_layout(template='plotly_white', height=self._height, margin=dict(t=50))
+            fig.add_scatter(mode='lines', name='ROI')
+            self.fig = go.FigureWidget(fig)
+
+    def render_env(self,
+                   episode: int = None,
+                   max_episodes: int = None,
+                   step: int = None,
+                   max_steps: int = None,
+                   price_history: 'pd.DataFrame' = None,
+                   net_worth: 'pd.Series' = None,
+                   performance: 'pd.DataFrame' = None,
+                   trades: 'OrderedDict' = None) -> None:
+
+        roi = _roi_series(net_worth, scale_100=True)
+        self._ensure_fig()
+        self.fig.layout.title = self._create_log_entry(episode, max_episodes, step, max_steps)
+        self.fig.data[0].update({'x': roi.index, 'y': roi, 'name': roi.name})
+        if self._show_chart:
+            display(self.fig)
+            self.fig.show()
+
+    def save(self, root_path: str | None = None) -> None:
+        if not self._save_format:
+            return
+        valid_formats = ['html', 'png', 'jpeg', 'webp', 'svg', 'pdf', 'eps']
+        _check_valid_format(valid_formats, self._save_format)
+        _check_path(self._path)
+        filename = _create_auto_file_name(self._filename_prefix, self._save_format)
+        filename = os.path.join(root_path or self._path, filename)
+        if self._save_format == 'html':
+            self.fig.write_html(file=filename, include_plotlyjs='cdn', auto_open=False)
+        else:
+            self.fig.write_image(filename)
+
+    def reset(self) -> None:
+        self.fig = None
+
+
+class ROIMatplotlibRenderer(BaseRenderer):
+    """Plots ROI (since start) computed from net worth using Matplotlib."""
+    def __init__(self,
+                 display: bool = True,
+                 save_format: str | None = 'png',
+                 path: str = 'charts',
+                 filename_prefix: str = 'roi_') -> None:
+        super().__init__()
+        self._show_chart = display
+        self._save_format = save_format
+        self._path = path
+        self._filename_prefix = filename_prefix
+        self.fig = None
+        self.ax = None
+        if self._save_format and self._path and not os.path.exists(path):
+            os.mkdir(path)
+
+    def _ensure_fig(self):
+        if self.fig is None:
+            self.fig, self.ax = plt.subplots()
+
+    def render_env(self,
+                   episode: int = None,
+                   max_episodes: int = None,
+                   step: int = None,
+                   max_steps: int = None,
+                   price_history: 'pd.DataFrame' = None,
+                   net_worth: 'pd.Series' = None,
+                   performance: 'pd.DataFrame' = None,
+                   trades: 'OrderedDict' = None) -> None:
+
+        roi = _roi_series(net_worth, scale_100=True)
+        self._ensure_fig()
+        self.ax.clear()
+        self.ax.plot(roi.index, roi)
+        self.ax.set_title(self._create_log_entry(episode, max_episodes, step, max_steps))
+        self.ax.set_xlabel('Time')
+        self.ax.set_ylabel(roi.name)
+        if self._show_chart:
+            plt.show(block=False)
+            plt.pause(0.001)
+
+    def save(self, root_path: str | None = None) -> None:
+        if not self._save_format:
+            return
+        valid_formats = ['png', 'jpeg', 'svg', 'pdf']
+        _check_valid_format(valid_formats, self._save_format)
+        _check_path(self._path)
+        filename = _create_auto_file_name(self._filename_prefix, self._save_format)
+        filename = os.path.join(root_path or self._path, filename)
+        self.fig.savefig(filename, format=self._save_format)
+
+    def reset(self) -> None:
+        self.fig = None
+        self.ax = None
+
+
+# --- Drawdown Renderers (Plotly / Matplotlib) ---
+class DrawdownPlotlyRenderer(BaseRenderer):
+    """Plots drawdown series (≤ 0) computed from net worth using Plotly."""
+    def __init__(self,
+                 display: bool = True,
+                 height: int | None = 500,
+                 save_format: str | None = 'html',
+                 path: str = 'charts',
+                 filename_prefix: str = 'drawdown_') -> None:
+        super().__init__()
+        self._height = height
+        self._show_chart = display
+        self._save_format = save_format
+        self._path = path
+        self._filename_prefix = filename_prefix
+        self.fig = None
+        if self._save_format and self._path and not os.path.exists(path):
+            os.mkdir(path)
+
+    def _ensure_fig(self):
+        if self.fig is None:
+            if not importlib.util.find_spec("plotly"):
+                raise RuntimeError("Plotly is not installed but required for DrawdownPlotlyRenderer.")
+            fig = go.Figure()
+            fig.update_layout(template='plotly_white', height=self._height, margin=dict(t=50))
+            fig.add_scatter(mode='lines', name='Drawdown')
+            self.fig = go.FigureWidget(fig)
+
+    def render_env(self,
+                   episode: int = None,
+                   max_episodes: int = None,
+                   step: int = None,
+                   max_steps: int = None,
+                   price_history: 'pd.DataFrame' = None,
+                   net_worth: 'pd.Series' = None,
+                   performance: 'pd.DataFrame' = None,
+                   trades: 'OrderedDict' = None) -> None:
+
+        dd = _drawdown_series(net_worth, scale_100=True)
+        self._ensure_fig()
+        self.fig.layout.title = self._create_log_entry(episode, max_episodes, step, max_steps)
+        self.fig.data[0].update({'x': dd.index, 'y': dd, 'name': dd.name})
+        if self._show_chart:
+            display(self.fig)
+            self.fig.show()
+
+    def save(self, root_path: str | None = None) -> None:
+        if not self._save_format:
+            return
+        valid_formats = ['html', 'png', 'jpeg', 'webp', 'svg', 'pdf', 'eps']
+        _check_valid_format(valid_formats, self._save_format)
+        _check_path(self._path)
+        filename = _create_auto_file_name(self._filename_prefix, self._save_format)
+        filename = os.path.join(root_path or self._path, filename)
+        if self._save_format == 'html':
+            self.fig.write_html(file=filename, include_plotlyjs='cdn', auto_open=False)
+        else:
+            self.fig.write_image(filename)
+
+    def reset(self) -> None:
+        self.fig = None
+
+
+class DrawdownMatplotlibRenderer(BaseRenderer):
+    """Plots drawdown series (≤ 0) computed from net worth using Matplotlib."""
+    def __init__(self,
+                 display: bool = True,
+                 save_format: str | None = 'png',
+                 path: str = 'charts',
+                 filename_prefix: str = 'drawdown_') -> None:
+        super().__init__()
+        self._show_chart = display
+        self._save_format = save_format
+        self._path = path
+        self._filename_prefix = filename_prefix
+        self.fig = None
+        self.ax = None
+        if self._save_format and self._path and not os.path.exists(path):
+            os.mkdir(path)
+
+    def _ensure_fig(self):
+        if self.fig is None:
+            self.fig, self.ax = plt.subplots()
+
+    def render_env(self,
+                   episode: int = None,
+                   max_episodes: int = None,
+                   step: int = None,
+                   max_steps: int = None,
+                   price_history: 'pd.DataFrame' = None,
+                   net_worth: 'pd.Series' = None,
+                   performance: 'pd.DataFrame' = None,
+                   trades: 'OrderedDict' = None) -> None:
+
+        dd = _drawdown_series(net_worth, scale_100=True)
+        self._ensure_fig()
+        self.ax.clear()
+        self.ax.plot(dd.index, dd)
+        self.ax.set_title(self._create_log_entry(episode, max_episodes, step, max_steps))
+        self.ax.set_xlabel('Time')
+        self.ax.set_ylabel(dd.name)
+        if self._show_chart:
+            plt.show(block=False)
+            plt.pause(0.001)
+
+    def save(self, root_path: str | None = None) -> None:
+        if not self._save_format:
+            return
+        valid_formats = ['png', 'jpeg', 'svg', 'pdf']
+        _check_valid_format(valid_formats, self._save_format)
+        _check_path(self._path)
+        filename = _create_auto_file_name(self._filename_prefix, self._save_format)
+        filename = os.path.join(root_path or self._path, filename)
+        self.fig.savefig(filename, format=self._save_format)
+
+    def reset(self) -> None:
+        self.fig = None
+        self.ax = None
+
+#
+# --- PnL-only Renderers (Plotly / Matplotlib) ---
+class PnLPlotlyRenderer(BaseRenderer):
+    """Plots cumulative PnL (since start) computed from net worth using Plotly."""
+    def __init__(self,
+                 display: bool = True,
+                 height: int | None = 500,
+                 save_format: str | None = 'html',
+                 path: str = 'charts',
+                 filename_prefix: str = 'pnl_') -> None:
+        super().__init__()
+        self._height = height
+        self._show_chart = display
+        self._save_format = save_format
+        self._path = path
+        self._filename_prefix = filename_prefix
+        self.fig = None
+        if self._save_format and self._path and not os.path.exists(path):
+            os.mkdir(path)
+
+    def _ensure_fig(self):
+        if self.fig is None:
+            if not importlib.util.find_spec("plotly"):
+                raise RuntimeError("Plotly is not installed but required for PnLPlotlyRenderer.")
+            fig = go.Figure()
+            fig.update_layout(template='plotly_white', height=self._height, margin=dict(t=50))
+            fig.add_scatter(mode='lines', name='PnL (since start)')
+            self.fig = go.FigureWidget(fig)
+
+    def render_env(self,
+                   episode: int = None,
+                   max_episodes: int = None,
+                   step: int = None,
+                   max_steps: int = None,
+                   price_history: 'pd.DataFrame' = None,
+                   net_worth: 'pd.Series' = None,
+                   performance: 'pd.DataFrame' = None,
+                   trades: 'OrderedDict' = None) -> None:
+        pnl = _pnl_series(net_worth)
+        self._ensure_fig()
+        self.fig.layout.title = self._create_log_entry(episode, max_episodes, step, max_steps)
+        self.fig.data[0].update({'x': pnl.index, 'y': pnl, 'name': 'PnL (since start)'})
+        if self._show_chart:
+            display(self.fig)
+            self.fig.show()
+
+    def save(self, root_path: str | None = None) -> None:
+        if not self._save_format:
+            return
+        valid_formats = ['html', 'png', 'jpeg', 'webp', 'svg', 'pdf', 'eps']
+        _check_valid_format(valid_formats, self._save_format)
+        _check_path(self._path)
+        filename = _create_auto_file_name(self._filename_prefix, self._save_format)
+        filename = os.path.join(root_path or self._path, filename)
+        if self._save_format == 'html':
+            self.fig.write_html(file=filename, include_plotlyjs='cdn', auto_open=False)
+        else:
+            self.fig.write_image(filename)
+
+    def reset(self) -> None:
+        self.fig = None
+
+
+class PnLMatplotlibRenderer(BaseRenderer):
+    """Plots cumulative PnL (since start) computed from net worth using Matplotlib."""
+    def __init__(self,
+                 display: bool = True,
+                 save_format: str | None = None,
+                 path: str = 'charts',
+                 filename_prefix: str = 'pnl_') -> None:
+        super().__init__()
+        self._show_chart = display
+        self._save_format = save_format
+        self._path = path
+        self._filename_prefix = filename_prefix
+        self.fig = None
+        self.ax = None
+        if self._save_format and self._path and not os.path.exists(path):
+            os.mkdir(path)
+
+    def _ensure_fig(self):
+        if self.fig is None:
+            self.fig, self.ax = plt.subplots()
+
+    def render_env(self,
+                   episode: int = None,
+                   max_episodes: int = None,
+                   step: int = None,
+                   max_steps: int = None,
+                   price_history: 'pd.DataFrame' = None,
+                   net_worth: 'pd.Series' = None,
+                   performance: 'pd.DataFrame' = None,
+                   trades: 'OrderedDict' = None) -> None:
+        pnl = _pnl_series(net_worth)
+        self._ensure_fig()
+        self.ax.clear()
+        next_x = pnl.index
+        self.ax.plot(next_x, pnl)
+        self.ax.set_title(self._create_log_entry(episode, max_episodes, step, max_steps))
+        self.ax.set_xlabel('Time')
+        self.ax.set_ylabel('PnL (since start)')
+        if self._show_chart:
+            plt.show(block=False)
+            plt.pause(0.001)
+
+    def save(self, root_path: str | None = None) -> None:
+        if not self._save_format:
+            return
+        valid_formats = ['png', 'jpeg', 'svg', 'pdf']
+        _check_valid_format(valid_formats, self._save_format)
+        _check_path(self._path)
+        filename = _create_auto_file_name(self._filename_prefix, self._save_format)
+        filename = os.path.join(root_path or self._path, filename)
+        self.fig.savefig(filename, format=self._save_format)
+
+    def reset(self) -> None:
+        self.fig = None
+        self.ax = None
+
 _registry = {
     "screen-log": ScreenLogger,
     "file-log": FileLogger,
     "plotly": PlotlyTradingChart,
-    "matplot": MatplotlibTradingChart
+    "matplot": MatplotlibTradingChart,
+    "sharpe-plotly": SharpePlotlyRenderer,
+    "sharpe-matplot": SharpeMatplotlibRenderer,
+    "pnl-extrema-plotly": PnLExtremaPlotlyRenderer,
+    "pnl-extrema-matplot": PnLExtremaMatplotlibRenderer,
+    "roi-plotly": ROIPlotlyRenderer,
+    "roi-matplot": ROIMatplotlibRenderer,
+    "drawdown-plotly": DrawdownPlotlyRenderer,
+    "drawdown-matplot": DrawdownMatplotlibRenderer,
+    "pnl-plotly": PnLPlotlyRenderer,
+    "pnl-matplot": PnLMatplotlibRenderer,
 }
 
 
-def get(identifier: str) -> 'BaseRenderer':
+def construct_renderers(identifier: str, display: bool = True) -> 'BaseRenderer':
     """Gets the `BaseRenderer` that matches the identifier.
 
     Parameters
@@ -781,7 +1579,20 @@ def get(identifier: str) -> 'BaseRenderer':
     KeyError:
         Raised if identifier is not associated with any `BaseRenderer`
     """
-    if identifier not in _registry.keys():
-        msg = f"Identifier {identifier} is not associated with any `BaseRenderer`."
-        raise KeyError(msg)
-    return _registry[identifier]()
+    
+    def _get_one(identifier: str) -> 'BaseRenderer':
+        if identifier not in _registry.keys():
+            msg = f"Identifier {identifier} is not associated with any `BaseRenderer`."
+            raise KeyError(msg)
+        return _registry[identifier](display=display)
+    
+    print(f"Constructing renderers: {type(identifier)=}")
+    
+    if identifier == 'all':
+        return [_get_one(i) for i in _registry.keys()]
+    elif isinstance(identifier, Iterable):
+        return [_get_one(i) for i in identifier]
+    elif isinstance(identifier, str):
+        return _get_one(identifier)
+    else:
+        raise ValueError(f"Invalid identifier: {identifier}")

@@ -37,7 +37,7 @@ class Renderer(Component, metaclass=ABCMeta):
         """
         raise NotImplementedError()
 
-    def save(self) -> None:
+    def save(self, root_path: str | None = None) -> None:
         """Saves the rendered view of the environment."""
         pass
 
@@ -73,9 +73,9 @@ class AggregateRenderer(Renderer):
         for r in self.renderers:
             r.render(env, **kwargs)
 
-    def save(self) -> None:
+    def save(self, root_path: str | None = None) -> None:
         for r in self.renderers:
-            r.save()
+            r.save(root_path)
 
     def reset(self) -> None:
         for r in self.renderers:

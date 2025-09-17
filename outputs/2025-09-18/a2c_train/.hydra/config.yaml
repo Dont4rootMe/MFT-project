@@ -1,0 +1,98 @@
+data:
+  feature_engineering:
+    enabled: true
+    technical_indicators:
+      enabled: true
+      strategies:
+      - all
+      exclude:
+      - cdl
+      - cycles
+    custom_features:
+      enabled: true
+      lookback_periods:
+      - 5
+      - 10
+      - 20
+      - 50
+      price_features:
+      - moving_averages
+      - exponential_moving_averages
+      - volatility
+      - log_returns
+      - price_shifts
+    quantstats_features:
+      enabled: false
+      categories:
+      - risk
+      - returns
+      - volatility
+  feature_selection:
+    per_currency:
+      enabled: false
+      method: variance_corr
+      max_features: null
+      variance_threshold: 0.0
+      correlation_threshold: 0.95
+      n_components: 5
+      k: 20
+    post_merge:
+      enabled: false
+      method: none
+  _target_: pipelines.rl_agent_policy.data.data_parser.DataHandler
+  symbols:
+  - LINK
+  - SOL
+  time_freq: 1d
+  exchange: Binance
+  main_currency: USDT
+  cache:
+    enabled: false
+    dir: cache
+    checkpoint_name: null
+model:
+  _target_: tensortrade.agents.a2c_agent.A2CAgent
+  shared_network:
+    _target_: pipelines.rl_agent_policy.models.cnn.CNNBackbone
+train:
+  _target_: pipelines.rl_agent_policy.train.a2c.A2CTrainer
+  approach:
+    _target_: pipelines.rl_agent_policy.train.a2c.A2CConfig
+    batch_size: 128
+    discount_factor: 0.9999
+    learning_rate: 0.0001
+    eps_start: 0.9
+    eps_end: 0.05
+    eps_decay_steps: 200
+    entropy_c: 0.0001
+    memory_capacity: 1000
+    n_steps: null
+    n_episodes: 100000
+    validate_every_episodes: 500
+    checkpoint_every_episodes: 1000
+    resume_path: null
+assets: null
+run_name: a2c_train
+output_dir: outputs/${now:%Y-%m-%d}/${run_name}
+debug_logging: false
+env:
+  exchange: simulator
+  initial_cash: 10000
+  window_size: 30
+  assets: null
+  assets_initial:
+  - 100
+  - 100
+validation:
+  validation_size: 0.2
+  renderers:
+  - plotly
+  - sharpe-plotly
+  - pnl-extrema-plotly
+  - roi-plotly
+  - drawdown-plotly
+  - pnl-plotly
+action_scheme:
+  name: simple
+reward_scheme:
+  name: simple

@@ -172,14 +172,24 @@ class TradingEnv(gymnasium.Env, TimeIndexed):
         self.clock.increment()
 
         return obs, info
+    
+    def get_price_history(self) -> np.array:
+        return self.observer.renderer_history
+
+    def get_order_history(self) -> list[dict]:
+        """Gets the order history."""
+        return self.action_scheme.broker.trades
+    
+    def get_pnl_history(self) -> np.array:
+        return self.action_scheme.portfolio.performance['net_worth']
 
     def render(self, **kwargs) -> None:
         """Renders the environment."""
         self.renderer.render(self, **kwargs)
 
-    def save(self) -> None:
+    def save(self, root_path: str | None = None) -> None:
         """Saves the rendered view of the environment."""
-        self.renderer.save()
+        self.renderer.save(root_path)
 
     def close(self) -> None:
         """Closes the environment."""

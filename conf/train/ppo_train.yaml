@@ -1,8 +1,9 @@
-_target_: pipelines.a2c_agent.train.ppo.PPOTrainer
+_target_: pipelines.rl_agent_policy.train.ppo.PPOTrainer
 
 approach:
-  _target_: pipelines.a2c_agent.train.ppo.PPOConfig
+  _target_: pipelines.rl_agent_policy.train.ppo.PPOConfig
   batch_size: 2048
+  validate_every_steps: 500
   mini_batch_size: 64
   epochs: 10
   gamma: 0.99

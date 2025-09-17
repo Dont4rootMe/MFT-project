@@ -92,10 +92,11 @@ class TensorTradeActionScheme(ActionScheme):
 
         for order in orders:
             if order:
-                logging.info('Step {}: {} {}'.format(order.step, order.side, order.quantity))
+                logging.debug('Step {}: {} {}'.format(order.step, order.side, order.quantity))
                 self.broker.submit(order)
 
-        self.broker.update()
+        executed_orders = self.broker.update()
+        return executed_orders
 
     @abstractmethod
     def get_orders(self, action: Any, portfolio: 'Portfolio') -> 'List[Order]':
