@@ -8,6 +8,7 @@ assets: null  # optional list of asset symbols to trade; defaults to data symbol
 run_name: a2c_train
 output_dir: outputs/${now:%Y-%m-%d}/${run_name}
 
+use_accelerate: null
 debug_logging: false
 
 env:

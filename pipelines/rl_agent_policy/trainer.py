@@ -172,9 +172,18 @@ def main(cfg: DictConfig) -> None:
     output_dir = Path(to_absolute_path(cfg.output_dir))
     output_dir.mkdir(parents=True, exist_ok=True)
     
+    use_accelerate = cfg.get('use_accelerate', None)
+    
     agent = instantiate(cfg.model, env=train_env)
     train_config = instantiate(cfg.train.approach)
-    trainer = A2CTrainer(agent=agent, train_env=train_env, valid_env=valid_env, output_dir=output_dir, config=train_config)
+    trainer = A2CTrainer(
+        agent=agent, 
+        train_env=train_env, 
+        valid_env=valid_env, 
+        output_dir=output_dir, 
+        config=train_config,
+        use_accelerate=use_accelerate
+    )
     trainer.train()
 
     # ------------------------------------------------------------------

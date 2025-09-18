@@ -15,3 +15,5 @@ approach:
   validate_every_episodes: 500
   checkpoint_every_episodes: 1000
   resume_path: null
+  gradient_accumulation_steps: 2  # Number of steps to accumulate gradients before updating
+  

@@ -6,6 +6,7 @@ from pathlib import Path
 import json
 import shutil
 
+import os
 import numpy as np
 import pandas as pd
 import torch
@@ -16,6 +17,43 @@ from tqdm import tqdm
 
 from tensortrade.agents import ReplayMemory
 from tensortrade.agents.a2c_agent import A2CTransition
+
+# Try to import accelerate, but make it optional
+try:
+    from accelerate import Accelerator
+    ACCELERATE_AVAILABLE = True
+except ImportError:
+    ACCELERATE_AVAILABLE = False
+    Accelerator = None
+
+
+def _get_auto_device() -> torch.device:
+    """
+    Automatically detect the best available device, respecting CUDA_VISIBLE_DEVICES.
+    
+    Returns:
+        torch.device: The selected device
+    """
+    if torch.cuda.is_available():
+        # Check CUDA_VISIBLE_DEVICES
+        cuda_visible = os.environ.get('CUDA_VISIBLE_DEVICES', None)
+        if cuda_visible is not None:
+            visible_devices = [int(x.strip()) for x in cuda_visible.split(',') if x.strip().isdigit()]
+            if visible_devices:
+                # Use the first visible device
+                device_id = visible_devices[0]
+                device = torch.device(f'cuda:{device_id}')
+                print(f"🎯 Auto-detected device: {device} (from CUDA_VISIBLE_DEVICES={cuda_visible})")
+                return device
+        
+        # Default to cuda:0 if CUDA_VISIBLE_DEVICES is not set or invalid
+        device = torch.device('cuda:0')
+        print(f"🎯 Auto-detected device: {device} (CUDA available)")
+        return device
+    else:
+        device = torch.device('cpu')
+        print(f"🎯 Auto-detected device: {device} (CUDA not available)")
+        return device
 
 
 @dataclass
@@ -35,17 +73,43 @@ class A2CConfig:
     validate_every_episodes: int = 500
     checkpoint_every_episodes: int = 1000
     resume_path: Optional[str] = None
+    gradient_accumulation_steps: int = 1  # Number of steps to accumulate gradients before updating
 
 
 class A2CTrainer:
     """Simple trainer implementing the A2C algorithm with validation."""
 
-    def __init__(self, agent, train_env, valid_env, output_dir, config: Optional[A2CConfig] = None):
+    def __init__(self, 
+                 agent, 
+                 train_env, 
+                 valid_env, 
+                 output_dir, 
+                 config: Optional[A2CConfig] = None,
+                 use_accelerate: Optional[bool | None] = None 
+    ):
         self.agent = agent
         self.train_env = train_env
         self.valid_env = valid_env
         self.cfg = config or A2CConfig()
         self.output_dir = output_dir
+        
+        # Determine whether to use accelerate or manual device management
+        self.use_accelerate = self._should_use_accelerate(use_accelerate)
+        
+        if self.use_accelerate:
+            # Initialize accelerator with gradient accumulation
+            self.accelerator = Accelerator(
+                gradient_accumulation_steps=self.cfg.gradient_accumulation_steps
+            )
+            self.device = self.accelerator.device
+        else:
+            # Use manual device management
+            self.accelerator = None
+            self.device = _get_auto_device()
+            # Move agent to device
+            self.agent.shared_network.to(self.device)
+            self.agent.actor_head.to(self.device)
+            self.agent.critic_head.to(self.device)
 
         self.output_dir = Path(output_dir)
         self.ckpt_root = self.output_dir / "checkpoints"
@@ -57,12 +121,58 @@ class A2CTrainer:
         self.episode = 0
         self._start_episode = 0
         self._start_step = 0
+        self._accumulation_step = 0  # Track gradient accumulation steps
+
+        # Prepare models and optimizer (only if using accelerate)
+        if self.use_accelerate:
+            self.agent.shared_network, self.agent.actor_head, self.agent.critic_head, self.agent.optimizer = self.accelerator.prepare(
+                self.agent.shared_network, 
+                self.agent.actor_head, 
+                self.agent.critic_head, 
+                self.agent.optimizer
+            )
 
         resume_path = self.cfg.resume_path
         if resume_path:
             self._load_checkpoint(resume_path)
         elif (self.ckpt_root / "latest").exists():
             self._load_checkpoint(self.ckpt_root / "latest")
+
+    def _should_use_accelerate(self, use_accelerate) -> bool:
+        """
+        Determine whether to use accelerate or manual device management.
+        
+        Returns:
+            bool: True if should use accelerate, False for manual device management
+        """
+        # If explicitly set in config, use that
+        if use_accelerate is not None:
+            if use_accelerate and not ACCELERATE_AVAILABLE:
+                print("⚠️  Warning: use_accelerate=True but accelerate not available. Falling back to manual device management.")
+                return False
+            return use_accelerate
+        
+        # Auto-detect: use accelerate if available and we're in a distributed context
+        if ACCELERATE_AVAILABLE:
+            # Check if we're running with accelerate launch (common environment variables)
+            distributed_env_vars = [
+                'LOCAL_RANK', 'RANK', 'WORLD_SIZE', 
+                'MASTER_ADDR', 'MASTER_PORT',
+                'ACCELERATE_USE_FSDP', 'ACCELERATE_USE_DEEPSPEED'
+            ]
+            
+            if any(var in os.environ for var in distributed_env_vars):
+                print("🚀 Detected distributed training environment. Using Accelerate.")
+                return True
+            
+            # Check if mixed precision is requested via environment
+            if os.environ.get('ACCELERATE_MIXED_PRECISION', '').lower() in ['fp16', 'bf16']:
+                print("🚀 Detected mixed precision request. Using Accelerate.")
+                return True
+        
+        # Default to manual device management
+        print("🎯 Using manual device management (no distributed training detected).")
+        return False
 
     # ------------------------------------------------------------------
     # Core optimisation helpers (adapted from the original agent)
@@ -79,14 +189,14 @@ class A2CTrainer:
         transitions = memory.tail(self.cfg.batch_size)
         batch = A2CTransition(*zip(*transitions))
 
-        states = torch.tensor(np.stack(batch.state), dtype=torch.float32, device=self.agent.device)
+        states = torch.tensor(np.stack(batch.state), dtype=torch.float32, device=self.device)
         if states.ndim == 3:
             states = states.permute(0, 2, 1)
 
-        actions = torch.tensor(batch.action, dtype=torch.int64, device=self.agent.device)
-        rewards = torch.tensor(batch.reward, dtype=torch.float32, device=self.agent.device)
-        dones = torch.tensor(batch.done, dtype=torch.bool, device=self.agent.device)
-        values = torch.stack(batch.value).to(self.agent.device)
+        actions = torch.tensor(batch.action, dtype=torch.int64, device=self.device)
+        rewards = torch.tensor(batch.reward, dtype=torch.float32, device=self.device)
+        dones = torch.tensor(batch.done, dtype=torch.bool, device=self.device)
+        values = torch.stack(batch.value).to(self.device)
 
         returns = self._compute_returns(rewards, dones)
         advantages = returns - values.detach()
@@ -102,35 +212,81 @@ class A2CTrainer:
         entropy = -(log_probs * torch.exp(log_probs)).sum(dim=-1).mean()
         loss = actor_loss + 0.5 * critic_loss - self.cfg.entropy_c * entropy
 
-        self.agent.optimizer.zero_grad()
-        loss.backward()
-        nn.utils.clip_grad_norm_(
-            list(self.agent.shared_network.parameters())
-            + list(self.agent.actor_head.parameters())
-            + list(self.agent.critic_head.parameters()),
-            max_norm=0.5,
-        )
-        self.agent.optimizer.step()
+        # Handle gradient accumulation
+        if self.use_accelerate:
+            # Use accelerate with gradient accumulation
+            with self.accelerator.accumulate(self.agent.shared_network):
+                self.accelerator.backward(loss)
+                if self.accelerator.sync_gradients:
+                    self.accelerator.clip_grad_norm_(
+                        list(self.agent.shared_network.parameters())
+                        + list(self.agent.actor_head.parameters())
+                        + list(self.agent.critic_head.parameters()),
+                        max_norm=0.5,
+                    )
+                self.agent.optimizer.step()
+                self.agent.optimizer.zero_grad()
+        else:
+            # Manual gradient accumulation
+            loss = loss / self.cfg.gradient_accumulation_steps  # Scale loss for accumulation
+            loss.backward()
+            
+            self._accumulation_step += 1
+            
+            # Only update weights after accumulating enough gradients
+            if self._accumulation_step % self.cfg.gradient_accumulation_steps == 0:
+                nn.utils.clip_grad_norm_(
+                    list(self.agent.shared_network.parameters())
+                    + list(self.agent.actor_head.parameters())
+                    + list(self.agent.critic_head.parameters()),
+                    max_norm=0.5,
+                )
+                self.agent.optimizer.step()
+                self.agent.optimizer.zero_grad()
+                self._accumulation_step = 0
 
     # ------------------------------------------------------------------
     def _save_checkpoint(self, step: int, episode: int):
+        # Only save on main process in distributed training
+        if self.use_accelerate and not self.accelerator.is_main_process:
+            return
+            
         ckpt_dir = self.ckpt_root / str(step)
         model_dir = ckpt_dir / "model"
         trainer_dir = ckpt_dir / "trainer"
         model_dir.mkdir(parents=True, exist_ok=True)
         trainer_dir.mkdir(parents=True, exist_ok=True)
 
-        torch.save(
-            {
-                "shared": self.agent.shared_network.state_dict(),
-                "actor": self.agent.actor_head.state_dict(),
-                "critic": self.agent.critic_head.state_dict(),
-            },
-            model_dir / "state.pt",
-        )
-        torch.save(self.agent.optimizer.state_dict(), trainer_dir / "optimizer.pt")
-        if hasattr(self.agent, "scheduler"):
-            torch.save(self.agent.scheduler.state_dict(), trainer_dir / "scheduler.pt")
+        if self.use_accelerate:
+            # Use accelerator to unwrap models for saving
+            self.accelerator.save(
+                {
+                    "shared": self.accelerator.unwrap_model(self.agent.shared_network).state_dict(),
+                    "actor": self.accelerator.unwrap_model(self.agent.actor_head).state_dict(),
+                    "critic": self.accelerator.unwrap_model(self.agent.critic_head).state_dict(),
+                },
+                model_dir / "state.pt",
+            )
+            # Save optimizer state
+            self.accelerator.save(self.agent.optimizer.state_dict(), trainer_dir / "optimizer.pt")
+            
+            if hasattr(self.agent, "scheduler"):
+                self.accelerator.save(self.agent.scheduler.state_dict(), trainer_dir / "scheduler.pt")
+        else:
+            # Manual saving without accelerator
+            torch.save(
+                {
+                    "shared": self.agent.shared_network.state_dict(),
+                    "actor": self.agent.actor_head.state_dict(),
+                    "critic": self.agent.critic_head.state_dict(),
+                },
+                model_dir / "state.pt",
+            )
+            torch.save(self.agent.optimizer.state_dict(), trainer_dir / "optimizer.pt")
+            
+            if hasattr(self.agent, "scheduler"):
+                torch.save(self.agent.scheduler.state_dict(), trainer_dir / "scheduler.pt")
+            
         with open(ckpt_dir / "meta.json", "w") as f:
             json.dump({"step": step, "episode": episode}, f)
 
@@ -141,15 +297,32 @@ class A2CTrainer:
 
     def _load_checkpoint(self, path):
         ckpt_dir = Path(path)
-        model_state = torch.load(ckpt_dir / "model" / "state.pt", map_location=self.agent.device)
-        self.agent.shared_network.load_state_dict(model_state["shared"])
-        self.agent.actor_head.load_state_dict(model_state["actor"])
-        self.agent.critic_head.load_state_dict(model_state["critic"])
-        opt_state = torch.load(ckpt_dir / "trainer" / "optimizer.pt", map_location=self.agent.device)
+        
+        # Load model states with proper device handling
+        model_state = torch.load(ckpt_dir / "model" / "state.pt", map_location=self.device)
+        
+        if self.use_accelerate:
+            # Load with accelerator unwrapping
+            self.accelerator.unwrap_model(self.agent.shared_network).load_state_dict(model_state["shared"])
+            self.accelerator.unwrap_model(self.agent.actor_head).load_state_dict(model_state["actor"])
+            self.accelerator.unwrap_model(self.agent.critic_head).load_state_dict(model_state["critic"])
+        else:
+            # Direct loading without accelerator
+            self.agent.shared_network.load_state_dict(model_state["shared"])
+            self.agent.actor_head.load_state_dict(model_state["actor"])
+            self.agent.critic_head.load_state_dict(model_state["critic"])
+        
+        # Load optimizer state
+        opt_state = torch.load(ckpt_dir / "trainer" / "optimizer.pt", map_location=self.device)
         self.agent.optimizer.load_state_dict(opt_state)
+        
+        # Load scheduler state if exists
         sched_path = ckpt_dir / "trainer" / "scheduler.pt"
         if hasattr(self.agent, "scheduler") and sched_path.exists():
-            self.agent.scheduler.load_state_dict(torch.load(sched_path, map_location=self.agent.device))
+            sched_state = torch.load(sched_path, map_location=self.device)
+            self.agent.scheduler.load_state_dict(sched_state)
+            
+        # Load metadata
         meta_path = ckpt_dir / "meta.json"
         if meta_path.exists():
             with open(meta_path) as f:
@@ -159,6 +332,33 @@ class A2CTrainer:
 
     def train(self):
         cfg = self.cfg
+        
+        # Print training configuration
+        is_main_process = not self.use_accelerate or self.accelerator.is_main_process
+        if is_main_process:
+            if self.use_accelerate:
+                print(f"🚀 Accelerate Training Configuration:")
+                print(f"   Device: {self.accelerator.device}")
+                print(f"   Distributed: {self.accelerator.distributed_type}")
+                print(f"   Mixed Precision: {self.accelerator.mixed_precision}")
+                print(f"   Number of processes: {self.accelerator.num_processes}")
+                print(f"   Process index: {self.accelerator.process_index}")
+                print(f"   Gradient Accumulation Steps: {cfg.gradient_accumulation_steps}")
+                if cfg.gradient_accumulation_steps > 1:
+                    effective_batch_size = cfg.batch_size * cfg.gradient_accumulation_steps
+                    print(f"   Effective Batch Size: {effective_batch_size} ({cfg.batch_size} × {cfg.gradient_accumulation_steps})")
+            else:
+                print(f"🎯 Manual Device Training Configuration:")
+                print(f"   Device: {self.device}")
+                print(f"   CUDA Available: {torch.cuda.is_available()}")
+                if torch.cuda.is_available():
+                    print(f"   CUDA Device Count: {torch.cuda.device_count()}")
+                    print(f"   CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'Not set')}")
+                print(f"   Gradient Accumulation Steps: {cfg.gradient_accumulation_steps}")
+                if cfg.gradient_accumulation_steps > 1:
+                    effective_batch_size = cfg.batch_size * cfg.gradient_accumulation_steps
+                    print(f"   Effective Batch Size: {effective_batch_size} ({cfg.batch_size} × {cfg.gradient_accumulation_steps})")
+        
         # update learning rate
         for pg in self.agent.optimizer.param_groups:
             pg["lr"] = cfg.learning_rate
@@ -174,11 +374,14 @@ class A2CTrainer:
         last_train_reward = 0.0
         last_val_reward = 0.0
         
-        # Create tqdm iterator for episodes
+        # Create tqdm iterator for episodes (only on main process)
         episode_range = range(self.episode, cfg.n_episodes)
-        pbar = tqdm(episode_range, desc="", initial=self.episode, total=cfg.n_episodes)
+        if is_main_process:
+            pbar = tqdm(episode_range, desc="", initial=self.episode, total=cfg.n_episodes)
+        else:
+            pbar = None
         
-        for self.episode in pbar:
+        for self.episode in episode_range:
             state, _ = self.train_env.reset()
             done = False
             
@@ -197,13 +400,16 @@ class A2CTrainer:
                 done = terminated or truncated
 
                 with torch.no_grad():
-                    _, value = self.agent._infer(state)
+                    # Move state to device for inference
+                    state_tensor = torch.tensor(state, dtype=torch.float32, device=self.device)
+                    _, value = self.agent._infer(state_tensor.cpu().numpy())
                 memory.push(state, action_idx, reward, done, value)
 
                 state = next_state
                 steps_done += 1
                 train_reward += reward
 
+                # Apply gradient descent with consideration for accumulation
                 if len(memory) >= cfg.batch_size:
                     self._apply_gradient_descent(memory)
 
@@ -219,15 +425,23 @@ class A2CTrainer:
             ):
                 self._save_checkpoint(steps_done, self.episode)
             
-            # run validation once per episode
-            if self.episode % cfg.validate_every_episodes == 0:
+            # run validation once per episode (only on main process)
+            if self.episode % cfg.validate_every_episodes == 0 and is_main_process:
                 last_val_reward = self._validate()
             
-            # Update tqdm description with current rewards
-            pbar.set_description(f"Train: {last_train_reward:.2f} | Val: {last_val_reward:.2f}")
+            # Update tqdm description with current rewards (only on main process)
+            if pbar is not None:
+                pbar.update(1)
+                pbar.set_description(f"Train: {last_train_reward:.2f} | Val: {last_val_reward:.2f}")
         
-        # Close the progress bar
-        pbar.close()
+        # Close the progress bar and save final checkpoint (only on main process)
+        if pbar is not None:
+            pbar.close()
+        
+        # Wait for all processes to finish before saving final checkpoint (only if using accelerate)
+        if self.use_accelerate:
+            self.accelerator.wait_for_everyone()
+        
         self._save_checkpoint(steps_done, self.episode)
 
     def _validate(self):
