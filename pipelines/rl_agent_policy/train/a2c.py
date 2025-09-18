@@ -7,6 +7,7 @@ import json
 import shutil
 
 import os
+import random
 import numpy as np
 import pandas as pd
 import torch
@@ -25,6 +26,41 @@ try:
 except ImportError:
     ACCELERATE_AVAILABLE = False
     Accelerator = None
+
+
+def _set_seed(seed: int):
+    """Set random seeds for reproducibility."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        # Make CUDA operations deterministic (may impact performance)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+
+def _get_process_seed(base_seed: Optional[int], process_index: int = 0) -> int:
+    """
+    Generate a process-specific seed to ensure different processes don't use the same seed.
+    
+    Args:
+        base_seed: Base seed from configuration
+        process_index: Index of the current process (0 for single process)
+        
+    Returns:
+        int: Process-specific seed
+    """
+    if base_seed is None:
+        # Generate a random base seed if none provided
+        base_seed = random.randint(0, 2**32 - 1)
+    
+    # Create process-specific seed by combining base seed with process index
+    # Use a prime number to ensure good distribution
+    process_seed = (base_seed + process_index * 1009) % (2**32)
+    
+    return process_seed
 
 
 def _get_auto_device() -> torch.device:
@@ -74,6 +110,7 @@ class A2CConfig:
     checkpoint_every_episodes: int = 1000
     resume_path: Optional[str] = None
     gradient_accumulation_steps: int = 1  # Number of steps to accumulate gradients before updating
+    seed: Optional[int] = None  # Base seed for reproducibility
 
 
 class A2CTrainer:
@@ -96,20 +133,37 @@ class A2CTrainer:
         # Determine whether to use accelerate or manual device management
         self.use_accelerate = self._should_use_accelerate(use_accelerate)
         
+        # Initialize seed management
         if self.use_accelerate:
             # Initialize accelerator with gradient accumulation
             self.accelerator = Accelerator(
                 gradient_accumulation_steps=self.cfg.gradient_accumulation_steps
             )
             self.device = self.accelerator.device
+            process_index = self.accelerator.process_index
         else:
             # Use manual device management
             self.accelerator = None
             self.device = _get_auto_device()
+            process_index = 0
             # Move agent to device
             self.agent.shared_network.to(self.device)
             self.agent.actor_head.to(self.device)
             self.agent.critic_head.to(self.device)
+        
+        # Set process-specific seed for reproducibility
+        self.process_seed = _get_process_seed(self.cfg.seed, process_index)
+        _set_seed(self.process_seed)
+        
+        # Log seed information
+        is_main_process = not self.use_accelerate or self.accelerator.is_main_process
+        if is_main_process:
+            print(f"🌱 Seed Configuration:")
+            print(f"   Base seed: {self.cfg.seed}")
+            print(f"   Process seed: {self.process_seed}")
+            if self.use_accelerate:
+                print(f"   Process index: {process_index}")
+                print(f"   Total processes: {self.accelerator.num_processes}")
 
         self.output_dir = Path(output_dir)
         self.ckpt_root = self.output_dir / "checkpoints"
@@ -449,7 +503,7 @@ class A2CTrainer:
         validation_output_dir = self.valid_output_dir / f"step_{self.episode}"
         validation_output_dir.mkdir(parents=True, exist_ok=True)
         
-        state, _ = self.valid_env.reset(start_from_time=True)
+        state, _ = self.valid_env.reset(start_from_start=True)
         done = False
         total_reward = 0.0
 

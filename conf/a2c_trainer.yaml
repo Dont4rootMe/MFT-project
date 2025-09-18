@@ -11,10 +11,14 @@ output_dir: outputs/${now:%Y-%m-%d}/${run_name}
 use_accelerate: null
 debug_logging: false
 
+# Seed configuration for reproducibility
+seed: 42  # Base seed - each process will get a unique derived seed
+
 env:
   exchange: "simulator"
   initial_cash: 10000
   window_size: 30
+  max_episode_length: 75  # Maximum episode length in time steps (null = no limit)
   assets: null
   assets_initial: 
     - 100

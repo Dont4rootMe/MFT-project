@@ -254,7 +254,7 @@ class PPOTrainer:
         self._save_checkpoint(total_steps, episode)
 
     def _validate(self):
-        state = self.valid_env.reset(start_from_time=True)
+        state = self.valid_env.reset(start_from_start=True)
         done = False
         total_reward = 0.0
         while not done:
