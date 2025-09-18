@@ -313,7 +313,7 @@ def main(cfg: DictConfig) -> None:
     # ------------------------------------------------------------------
     # Final evaluation and result handling
     # ------------------------------------------------------------------
-    state, _ = valid_env.reset(start_from_start=True)
+    state, _ = valid_env.reset(begin_from_start=True)
     done = False
     total_reward = 0.0
     while not done:

@@ -147,14 +147,14 @@ class TradingEnv(gymnasium.Env, TimeIndexed):
 
         return obs, reward, terminated, truncated, info
 
-    def reset(self, seed = None, start_from_start = False) -> tuple["np.array", dict[str, Any]]:
+    def reset(self, seed = None, begin_from_start = False) -> tuple["np.array", dict[str, Any]]:
         """Resets the environment.
 
         Parameters
         ----------
         seed : int, optional
             Seed for the random number generator. If provided, it will seed the environment's RNG.
-        start_from_start : bool, optional
+        begin_from_start : bool, optional
             Whether to start from the beginning of the time series (default: False).
 
         Returns
@@ -168,7 +168,7 @@ class TradingEnv(gymnasium.Env, TimeIndexed):
         if seed is not None:
             self.rng.seed(seed)
         
-        if start_from_start or self.max_episode_length is None:
+        if begin_from_start or self.max_episode_length is None:
             random_start = 0
         else:
             size = len(self.observer.feed.process[-1].inputs[0].iterable)
