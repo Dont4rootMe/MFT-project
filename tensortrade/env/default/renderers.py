@@ -1185,6 +1185,361 @@ def _drawdown_series(net_worth: 'pd.Series', scale_100: bool = True) -> 'pd.Seri
     return dd
 
 
+# --- Calmar, Hit Ratio, Turnover helpers ---
+def _returns_from_net_worth(net_worth: 'pd.Series') -> 'pd.Series':
+    """Period-to-period returns inferred from net worth."""
+    if net_worth is None or len(net_worth) == 0:
+        raise ValueError("`net_worth` Series is empty; cannot compute returns.")
+    return net_worth.pct_change().fillna(0.0)
+
+
+def _calmar_series(net_worth: 'pd.Series', periods_per_year: int = 252) -> 'pd.Series':
+    """Calmar-to-date time series: CAGR_to_date / |MDD_to_date|.
+    CAGR_t = (NW_t / NW_0) ** (ppy / t) - 1, with t counted in periods.
+    MDD_to_date is the absolute value of cumulative minimum drawdown up to t.
+    """
+    nw = net_worth
+    if nw is None or len(nw) == 0:
+        raise ValueError("`net_worth` Series is empty; cannot compute Calmar.")
+    idx = nw.index
+    # CAGR-to-date
+    rel = nw / nw.iloc[0]
+    steps = np.arange(1, len(nw) + 1, dtype=float)  # 1..T
+    cagr = np.power(rel.values, periods_per_year / steps) - 1.0
+    # Max drawdown absolute value up to date
+    dd_frac = _drawdown_series(nw, scale_100=False)  # ≤ 0
+    mdd_abs_to_date = (-dd_frac).cummax().values     # ≥ 0
+    # Avoid division by zero
+    with np.errstate(divide='ignore', invalid='ignore'):
+        calmar = np.where(mdd_abs_to_date > 0, cagr / mdd_abs_to_date, np.nan)
+    calmar = pd.Series(calmar, index=idx, name="Calmar (to date)")
+    return calmar
+
+
+def _hit_ratio_series_from_returns(returns: 'pd.Series') -> 'pd.Series':
+    """Cumulative hit ratio over time based on period returns.
+    Hit ratio_t = (# periods with r>0 up to t) / (# periods up to t).
+    Note: This is period-level, not trade-level, to keep dependency minimal.
+    """
+    if returns is None or len(returns) == 0:
+        raise ValueError("`returns` Series is empty; cannot compute hit ratio.")
+    wins = (returns > 0).astype(float)
+    # cumulative mean
+    denom = np.arange(1, len(wins) + 1, dtype=float)
+    hr = wins.cumsum().values / denom
+    hr_series = pd.Series(hr, index=returns.index, name="Hit Ratio (periods)")
+    return hr_series
+
+
+def _turnover_series(trades: 'OrderedDict', net_worth: 'pd.Series') -> 'pd.Series':
+    """Per-step turnover rate ≈ traded notional / prior net worth.
+    For each step:
+      - BUY: notional ≈ trade.size  (assumed in base/quote cash as used by env)
+      - SELL: notional ≈ trade.size * trade.price
+    This matches how annotations compute totals in PlotlyTradingChart.
+    Falls back to 0 when no trades occurred on a step.
+    """
+    if net_worth is None or len(net_worth) == 0:
+        raise ValueError("`net_worth` Series is empty; cannot compute turnover.")
+    idx = net_worth.index
+    per_step_notional = pd.Series(0.0, index=idx)
+
+    if trades:
+        # trades is an OrderedDict: {step: [Trade, ...]}
+        for step_key, trade_list in trades.items():
+            if trade_list is None or len(trade_list) == 0:
+                continue
+            # Convert env step (1-based in annotations) to 0-based index into series
+            # We clamp to index range just in case.
+            step_idx = int(getattr(trade_list[0], "step", step_key)) - 1
+            step_idx = max(0, min(step_idx, len(idx) - 1))
+            total = 0.0
+            for tr in trade_list:
+                side = getattr(tr, "side", None)
+                price = float(getattr(tr, "price", 0.0))
+                size = float(getattr(tr, "size", 0.0))
+                if side is None:
+                    continue
+                # TradeSide enum check via value string
+                side_val = getattr(side, "value", str(side)).lower()
+                if side_val == 'buy':
+                    # Notional approximated by cash spent (size)
+                    total += abs(size)
+                elif side_val == 'sell':
+                    # Notional approximated by proceeds (qty * price)
+                    total += abs(size * price)
+                else:
+                    # Unknown side; try best-effort notional
+                    total += abs(size * price) if price != 0 else abs(size)
+            # Accumulate if multiple entries map to same step
+            per_step_notional.iloc[step_idx] += total
+
+    # Use prior net worth as denominator; fall back to initial NW for the first observation
+    denom = net_worth.shift(1)
+    denom.iloc[0] = net_worth.iloc[0]
+    denom = denom.replace(0.0, np.nan)
+    turnover = per_step_notional / denom
+    turnover = turnover.fillna(0.0)
+    turnover.name = "Turnover (per step)"
+    return turnover
+
+
+# --- Calmar Renderers ---
+class CalmarPlotlyRenderer(BaseRenderer):
+    def __init__(self,
+                 display: bool = True,
+                 height: int | None = 500,
+                 periods_per_year: int = 252,
+                 save_format: str | None = 'html',
+                 path: str = 'charts',
+                 filename_prefix: str = 'calmar_') -> None:
+        super().__init__()
+        self._height = height
+        self._ppy = periods_per_year
+        self._show_chart = display
+        self._save_format = save_format
+        self._path = path
+        self._filename_prefix = filename_prefix
+        self.fig = None
+        if self._save_format and self._path and not os.path.exists(path):
+            os.mkdir(path)
+    def _ensure_fig(self):
+        if self.fig is None:
+            if not importlib.util.find_spec("plotly"):
+                raise RuntimeError("Plotly is not installed but required for CalmarPlotlyRenderer.")
+            fig = go.Figure()
+            fig.update_layout(template='plotly_white', height=self._height, margin=dict(t=50))
+            fig.add_scatter(mode='lines', name='Calmar (to date)')
+            self.fig = go.FigureWidget(fig)
+    def render_env(self, episode=None, max_episodes=None, step=None, max_steps=None,
+                   price_history=None, net_worth=None, performance=None, trades=None) -> None:
+        calmar = _calmar_series(net_worth, periods_per_year=self._ppy)
+        self._ensure_fig()
+        self.fig.layout.title = self._create_log_entry(episode, max_episodes, step, max_steps)
+        self.fig.data[0].update({'x': calmar.index, 'y': calmar, 'name': calmar.name})
+        if self._show_chart:
+            display(self.fig)
+            self.fig.show()
+    def save(self, root_path: str | None = None) -> None:
+        if not self._save_format: return
+        valid_formats = ['html','png','jpeg','webp','svg','pdf','eps']
+        _check_valid_format(valid_formats, self._save_format); _check_path(self._path)
+        filename = _create_auto_file_name(self._filename_prefix, self._save_format)
+        filename = os.path.join(root_path or self._path, filename)
+        self.fig.write_html(file=filename, include_plotlyjs='cdn', auto_open=False) if self._save_format=='html' else self.fig.write_image(filename)
+    def reset(self) -> None:
+        self.fig = None
+
+
+class CalmarMatplotlibRenderer(BaseRenderer):
+    def __init__(self,
+                 display: bool = True,
+                 periods_per_year: int = 252,
+                 save_format: str | None = 'png',
+                 path: str = 'charts',
+                 filename_prefix: str = 'calmar_') -> None:
+        super().__init__()
+        self._show_chart = display
+        self._ppy = periods_per_year
+        self._save_format = save_format
+        self._path = path
+        self._filename_prefix = filename_prefix
+        self.fig = None
+        self.ax = None
+        if self._save_format and self._path and not os.path.exists(path):
+            os.mkdir(path)
+    def _ensure_fig(self):
+        if self.fig is None:
+            self.fig, self.ax = plt.subplots()
+    def render_env(self, episode=None, max_episodes=None, step=None, max_steps=None,
+                   price_history=None, net_worth=None, performance=None, trades=None) -> None:
+        calmar = _calmar_series(net_worth, periods_per_year=self._ppy)
+        self._ensure_fig()
+        self.ax.clear()
+        self.ax.plot(calmar.index, calmar)
+        self.ax.set_title(self._create_log_entry(episode, max_episodes, step, max_steps))
+        self.ax.set_xlabel('Time'); self.ax.set_ylabel(calmar.name)
+        if self._show_chart:
+            plt.show(block=False); plt.pause(0.001)
+    def save(self, root_path: str | None = None) -> None:
+        if not self._save_format: return
+        valid_formats = ['png','jpeg','svg','pdf']
+        _check_valid_format(valid_formats, self._save_format); _check_path(self._path)
+        filename = _create_auto_file_name(self._filename_prefix, self._save_format)
+        filename = os.path.join(root_path or self._path, filename)
+        self.fig.savefig(filename, format=self._save_format)
+    def reset(self) -> None:
+        self.fig=None; self.ax=None
+
+
+# --- Hit Ratio Renderers ---
+class HitRatioPlotlyRenderer(BaseRenderer):
+    def __init__(self,
+                 display: bool = True,
+                 height: int | None = 500,
+                 save_format: str | None = 'html',
+                 path: str = 'charts',
+                 filename_prefix: str = 'hitratio_') -> None:
+        super().__init__()
+        self._height = height
+        self._show_chart = display
+        self._save_format = save_format
+        self._path = path
+        self._filename_prefix = filename_prefix
+        self.fig = None
+        if self._save_format and self._path and not os.path.exists(path):
+            os.mkdir(path)
+    def _ensure_fig(self):
+        if self.fig is None:
+            if not importlib.util.find_spec("plotly"):
+                raise RuntimeError("Plotly is not installed but required for HitRatioPlotlyRenderer.")
+            fig = go.Figure()
+            fig.update_layout(template='plotly_white', height=self._height, margin=dict(t=50))
+            fig.add_scatter(mode='lines', name='Hit Ratio (periods)')
+            self.fig = go.FigureWidget(fig)
+    def render_env(self, episode=None, max_episodes=None, step=None, max_steps=None,
+                   price_history=None, net_worth=None, performance=None, trades=None) -> None:
+        rets = _returns_from_net_worth(net_worth)
+        hr = _hit_ratio_series_from_returns(rets)
+        self._ensure_fig()
+        self.fig.layout.title = self._create_log_entry(episode, max_episodes, step, max_steps)
+        self.fig.data[0].update({'x': hr.index, 'y': hr, 'name': hr.name})
+        if self._show_chart:
+            display(self.fig); self.fig.show()
+    def save(self, root_path: str | None = None) -> None:
+        if not self._save_format: return
+        valid_formats = ['html','png','jpeg','webp','svg','pdf','eps']
+        _check_valid_format(valid_formats, self._save_format); _check_path(self._path)
+        filename = _create_auto_file_name(self._filename_prefix, self._save_format)
+        filename = os.path.join(root_path or self._path, filename)
+        self.fig.write_html(file=filename, include_plotlyjs='cdn', auto_open=False) if self._save_format=='html' else self.fig.write_image(filename)
+    def reset(self) -> None:
+        self.fig = None
+
+
+class HitRatioMatplotlibRenderer(BaseRenderer):
+    def __init__(self,
+                 display: bool = True,
+                 save_format: str | None = 'png',
+                 path: str = 'charts',
+                 filename_prefix: str = 'hitratio_') -> None:
+        super().__init__()
+        self._show_chart = display
+        self._save_format = save_format
+        self._path = path
+        self._filename_prefix = filename_prefix
+        self.fig = None
+        self.ax = None
+        if self._save_format and self._path and not os.path.exists(path):
+            os.mkdir(path)
+    def _ensure_fig(self):
+        if self.fig is None:
+            self.fig, self.ax = plt.subplots()
+    def render_env(self, episode=None, max_episodes=None, step=None, max_steps=None,
+                   price_history=None, net_worth=None, performance=None, trades=None) -> None:
+        rets = _returns_from_net_worth(net_worth)
+        hr = _hit_ratio_series_from_returns(rets)
+        self._ensure_fig()
+        self.ax.clear()
+        self.ax.plot(hr.index, hr)
+        self.ax.set_title(self._create_log_entry(episode, max_episodes, step, max_steps))
+        self.ax.set_xlabel('Time'); self.ax.set_ylabel(hr.name)
+        if self._show_chart:
+            plt.show(block=False); plt.pause(0.001)
+    def save(self, root_path: str | None = None) -> None:
+        if not self._save_format: return
+        valid_formats = ['png','jpeg','svg','pdf']
+        _check_valid_format(valid_formats, self._save_format); _check_path(self._path)
+        filename = _create_auto_file_name(self._filename_prefix, self._save_format)
+        filename = os.path.join(root_path or self._path, filename)
+        self.fig.savefig(filename, format=self._save_format)
+    def reset(self) -> None:
+        self.fig=None; self.ax=None
+
+
+# --- Turnover Renderers ---
+class TurnoverPlotlyRenderer(BaseRenderer):
+    def __init__(self,
+                 display: bool = True,
+                 height: int | None = 500,
+                 save_format: str | None = 'html',
+                 path: str = 'charts',
+                 filename_prefix: str = 'turnover_') -> None:
+        super().__init__()
+        self._height = height
+        self._show_chart = display
+        self._save_format = save_format
+        self._path = path
+        self._filename_prefix = filename_prefix
+        self.fig = None
+        if self._save_format and self._path and not os.path.exists(path):
+            os.mkdir(path)
+    def _ensure_fig(self):
+        if self.fig is None:
+            if not importlib.util.find_spec("plotly"):
+                raise RuntimeError("Plotly is not installed but required for TurnoverPlotlyRenderer.")
+            fig = go.Figure()
+            fig.update_layout(template='plotly_white', height=self._height, margin=dict(t=50))
+            fig.add_bar(name='Turnover (per step)')
+            self.fig = go.FigureWidget(fig)
+    def render_env(self, episode=None, max_episodes=None, step=None, max_steps=None,
+                   price_history=None, net_worth=None, performance=None, trades=None) -> None:
+        to = _turnover_series(trades, net_worth)
+        self._ensure_fig()
+        self.fig.layout.title = self._create_log_entry(episode, max_episodes, step, max_steps)
+        self.fig.data[0].update({'x': to.index, 'y': to, 'name': to.name})
+        if self._show_chart:
+            display(self.fig); self.fig.show()
+    def save(self, root_path: str | None = None) -> None:
+        if not self._save_format: return
+        valid_formats = ['html','png','jpeg','webp','svg','pdf','eps']
+        _check_valid_format(valid_formats, self._save_format); _check_path(self._path)
+        filename = _create_auto_file_name(self._filename_prefix, self._save_format)
+        filename = os.path.join(root_path or self._path, filename)
+        self.fig.write_html(file=filename, include_plotlyjs='cdn', auto_open=False) if self._save_format=='html' else self.fig.write_image(filename)
+    def reset(self) -> None:
+        self.fig = None
+
+
+class TurnoverMatplotlibRenderer(BaseRenderer):
+    def __init__(self,
+                 display: bool = True,
+                 save_format: str | None = 'png',
+                 path: str = 'charts',
+                 filename_prefix: str = 'turnover_') -> None:
+        super().__init__()
+        self._show_chart = display
+        self._save_format = save_format
+        self._path = path
+        self._filename_prefix = filename_prefix
+        self.fig = None
+        self.ax = None
+        if self._save_format and self._path and not os.path.exists(path):
+            os.mkdir(path)
+    def _ensure_fig(self):
+        if self.fig is None:
+            self.fig, self.ax = plt.subplots()
+    def render_env(self, episode=None, max_episodes=None, step=None, max_steps=None,
+                   price_history=None, net_worth=None, performance=None, trades=None) -> None:
+        to = _turnover_series(trades, net_worth)
+        self._ensure_fig()
+        self.ax.clear()
+        self.ax.bar(to.index, to)
+        self.ax.set_title(self._create_log_entry(episode, max_episodes, step, max_steps))
+        self.ax.set_xlabel('Time'); self.ax.set_ylabel(to.name)
+        if self._show_chart:
+            plt.show(block=False); plt.pause(0.001)
+    def save(self, root_path: str | None = None) -> None:
+        if not self._save_format: return
+        valid_formats = ['png','jpeg','svg','pdf']
+        _check_valid_format(valid_formats, self._save_format); _check_path(self._path)
+        filename = _create_auto_file_name(self._filename_prefix, self._save_format)
+        filename = os.path.join(root_path or self._path, filename)
+        self.fig.savefig(filename, format=self._save_format)
+    def reset(self) -> None:
+        self.fig=None; self.ax=None
+
+
 # --- ROI Renderers (Plotly / Matplotlib) ---
 class ROIPlotlyRenderer(BaseRenderer):
     """Plots ROI (since start) computed from net worth using Plotly."""
@@ -1558,6 +1913,12 @@ _registry = {
     "drawdown-matplot": DrawdownMatplotlibRenderer,
     "pnl-plotly": PnLPlotlyRenderer,
     "pnl-matplot": PnLMatplotlibRenderer,
+    "calmar-plotly": CalmarPlotlyRenderer,
+    "calmar-matplot": CalmarMatplotlibRenderer,
+    "hitratio-plotly": HitRatioPlotlyRenderer,
+    "hitratio-matplot": HitRatioMatplotlibRenderer,
+    "turnover-plotly": TurnoverPlotlyRenderer,
+    "turnover-matplot": TurnoverMatplotlibRenderer,
 }
 
 
