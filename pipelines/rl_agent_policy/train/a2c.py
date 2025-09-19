@@ -503,7 +503,7 @@ class A2CTrainer:
         validation_output_dir = self.valid_output_dir / f"step_{self.episode}"
         validation_output_dir.mkdir(parents=True, exist_ok=True)
         
-        state, _ = self.valid_env.reset(start_from_start=True)
+        state, _ = self.valid_env.reset(begin_from_start=True)
         done = False
         total_reward = 0.0
 
