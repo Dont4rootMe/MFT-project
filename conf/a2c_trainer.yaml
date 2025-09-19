@@ -24,9 +24,12 @@ env:
     - 100
     - 100
 
-validation: 
+validation:
   validation_size: 0.2  # fraction of data or absolute count for validation
 
+  renderer_formats:
+    - png
+    - html
   renderers: # all or some of the renderers from renderers.py
     - plotly
     - sharpe-plotly
@@ -34,6 +37,9 @@ validation:
     - roi-plotly
     - drawdown-plotly
     - pnl-plotly
+    - calmar-plotly
+    - hitratio-plotly
+    - turnover-plotly
 
 action_scheme:
   name: simple
