@@ -19,9 +19,9 @@ import importlib
 
 from abc import abstractmethod
 from datetime import datetime
-from typing import Union, Tuple
+from typing import Optional, Union, Tuple
 from collections import OrderedDict
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 import numpy as np
 import pandas as pd
@@ -31,6 +31,9 @@ from pandas.plotting import register_matplotlib_converters
 
 from tensortrade.oms.orders import TradeSide
 from tensortrade.env.generic import Renderer, TradingEnv
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 if importlib.util.find_spec("matplotlib"):
@@ -45,6 +48,18 @@ if importlib.util.find_spec("plotly"):
     import plotly.graph_objects as go
 
     from plotly.subplots import make_subplots
+
+
+def _as_plotly_figure(fig):
+    """Return a Plotly FigureWidget when available, otherwise fall back to Figure."""
+    try:
+        return go.FigureWidget(fig)
+    except Exception as exc:  # pragma: no cover - depends on optional deps
+        LOGGER.warning(
+            "Plotly FigureWidget unavailable, falling back to Figure representation: %s",
+            exc,
+        )
+        return fig
 
 
 def _create_auto_file_name(filename_prefix: str,
@@ -437,7 +452,7 @@ class PlotlyTradingChart(BaseRenderer):
         fig.update_xaxes(title_text='Net Worth', row=net_worth_row)
         fig.update_xaxes(title_standoff=7, title_font=dict(size=12))
 
-        self.fig = go.FigureWidget(fig)
+        self.fig = _as_plotly_figure(fig)
         
         # Store references to price charts for each currency
         self._price_charts = {}
@@ -902,7 +917,7 @@ class SharpePlotlyRenderer(BaseRenderer):
             fig = go.Figure()
             fig.update_layout(template='plotly_white', height=self._height, margin=dict(t=50))
             fig.add_scatter(mode='lines', name='Sharpe')
-            self.fig = go.FigureWidget(fig)
+            self.fig = _as_plotly_figure(fig)
 
     def render_env(self,
                    episode: int = None,
@@ -1048,7 +1063,7 @@ class PnLExtremaPlotlyRenderer(BaseRenderer):
             fig.update_layout(template='plotly_white', height=self._height, margin=dict(t=80))
             fig.add_scatter(mode='lines', name='Max Δ Rise', row=1, col=1)
             fig.add_scatter(mode='lines', name='Max Δ Downfall', row=2, col=1)
-            self.fig = go.FigureWidget(fig)
+            self.fig = _as_plotly_figure(fig)
 
     def render_env(self,
                    episode: int = None,
@@ -1185,6 +1200,89 @@ def _drawdown_series(net_worth: 'pd.Series', scale_100: bool = True) -> 'pd.Seri
     return dd
 
 
+def _calmar_series(net_worth: 'pd.Series', epsilon: float = 1e-8) -> 'pd.Series':
+    """Compute a running Calmar ratio from the net worth series."""
+    if net_worth is None or len(net_worth) == 0:
+        raise ValueError("`net_worth` Series is empty; cannot compute Calmar ratio.")
+
+    roi = _roi_series(net_worth, scale_100=False)
+    drawdown = _drawdown_series(net_worth, scale_100=False)
+    running_dd = drawdown.cummin().abs()
+    denom = running_dd.clip(lower=epsilon)
+    calmar = roi / denom
+    calmar = calmar.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    calmar.name = "Calmar Ratio"
+    return calmar
+
+
+def _hit_ratio_series(net_worth: 'pd.Series') -> 'pd.Series':
+    """Compute a running hit ratio from step-to-step net worth changes."""
+    if net_worth is None or len(net_worth) == 0:
+        raise ValueError("`net_worth` Series is empty; cannot compute hit ratio.")
+
+    step_returns = net_worth.diff().fillna(0.0)
+    wins = (step_returns > 0).astype(int).cumsum()
+    trades = (step_returns != 0).astype(int).cumsum()
+    ratio = wins.div(trades.replace(0, np.nan)).ffill().fillna(0.0)
+    ratio.name = "Hit Ratio"
+    return ratio
+
+
+def _trade_notional_in_base(trade: 'Trade') -> float:
+    """Return the trade notional converted into the base instrument units."""
+    quantity = getattr(trade, "quantity", None)
+    if quantity is None:
+        return 0.0
+
+    try:
+        instrument = getattr(quantity, "instrument", None)
+        pair = getattr(trade, "exchange_pair", None)
+        if pair is None or instrument is None:
+            return abs(float(getattr(quantity, "size", 0.0)))
+
+        base = pair.pair.base
+        if instrument == base:
+            return abs(float(quantity.size))
+
+        converted = quantity.convert(pair)
+        return abs(float(getattr(converted, "size", 0.0)))
+    except Exception as exc:  # pragma: no cover - defensive branch
+        LOGGER.debug("Failed to convert trade quantity to base units: %s", exc)
+        return abs(float(getattr(quantity, "size", 0.0)))
+
+
+def _turnover_series(net_worth: 'pd.Series',
+                     trades: Optional['OrderedDict[str, list]'] = None,
+                     initial_capital: Optional[float] = None) -> 'pd.Series':
+    """Compute cumulative turnover (traded notional / initial capital)."""
+    if net_worth is None or len(net_worth) == 0:
+        raise ValueError("`net_worth` Series is empty; cannot compute turnover.")
+
+    if initial_capital is None:
+        initial_capital = float(net_worth.iloc[0])
+
+    initial_capital = float(max(initial_capital, 1e-12))
+
+    turnover_events: dict[int, float] = {}
+    if trades:
+        for trade_list in trades.values():
+            for trade in trade_list:
+                step = getattr(trade, "step", None)
+                if step is None:
+                    continue
+                notional = _trade_notional_in_base(trade)
+                turnover_events[int(step)] = turnover_events.get(int(step), 0.0) + float(abs(notional))
+
+    cumulative = 0.0
+    values = []
+    for step in net_worth.index:
+        cumulative += turnover_events.get(int(step), 0.0)
+        values.append(cumulative / initial_capital)
+
+    series = pd.Series(values, index=net_worth.index, name="Cumulative Turnover (× initial capital)")
+    return series
+
+
 # --- ROI Renderers (Plotly / Matplotlib) ---
 class ROIPlotlyRenderer(BaseRenderer):
     """Plots ROI (since start) computed from net worth using Plotly."""
@@ -1211,7 +1309,7 @@ class ROIPlotlyRenderer(BaseRenderer):
             fig = go.Figure()
             fig.update_layout(template='plotly_white', height=self._height, margin=dict(t=50))
             fig.add_scatter(mode='lines', name='ROI')
-            self.fig = go.FigureWidget(fig)
+            self.fig = _as_plotly_figure(fig)
 
     def render_env(self,
                    episode: int = None,
@@ -1331,7 +1429,7 @@ class DrawdownPlotlyRenderer(BaseRenderer):
             fig = go.Figure()
             fig.update_layout(template='plotly_white', height=self._height, margin=dict(t=50))
             fig.add_scatter(mode='lines', name='Drawdown')
-            self.fig = go.FigureWidget(fig)
+            self.fig = _as_plotly_figure(fig)
 
     def render_env(self,
                    episode: int = None,
@@ -1451,7 +1549,7 @@ class PnLPlotlyRenderer(BaseRenderer):
             fig = go.Figure()
             fig.update_layout(template='plotly_white', height=self._height, margin=dict(t=50))
             fig.add_scatter(mode='lines', name='PnL (since start)')
-            self.fig = go.FigureWidget(fig)
+            self.fig = _as_plotly_figure(fig)
 
     def render_env(self,
                    episode: int = None,
@@ -1543,6 +1641,199 @@ class PnLMatplotlibRenderer(BaseRenderer):
         self.fig = None
         self.ax = None
 
+
+class CalmarPlotlyRenderer(BaseRenderer):
+    """Plots running Calmar ratio computed from net worth using Plotly."""
+
+    def __init__(self,
+                 display: bool = True,
+                 height: int | None = 500,
+                 epsilon: float = 1e-8,
+                 save_format: str | None = None,
+                 path: str = 'charts',
+                 filename_prefix: str = 'calmar_') -> None:
+        super().__init__()
+        self._height = height
+        self._show_chart = display
+        self._epsilon = epsilon
+        self._save_format = save_format
+        self._path = path
+        self._filename_prefix = filename_prefix
+        self.fig = None
+        if self._save_format and self._path and not os.path.exists(path):
+            os.mkdir(path)
+
+    def _ensure_fig(self):
+        if self.fig is None:
+            if not importlib.util.find_spec("plotly"):
+                raise RuntimeError("Plotly is not installed but required for CalmarPlotlyRenderer.")
+            fig = go.Figure()
+            fig.update_layout(template='plotly_white', height=self._height, margin=dict(t=50))
+            fig.add_scatter(mode='lines', name='Calmar Ratio')
+            self.fig = _as_plotly_figure(fig)
+
+    def render_env(self,
+                   episode: int = None,
+                   max_episodes: int = None,
+                   step: int = None,
+                   max_steps: int = None,
+                   price_history: 'pd.DataFrame' = None,
+                   net_worth: 'pd.Series' = None,
+                   performance: 'pd.DataFrame' = None,
+                   trades: 'OrderedDict' = None) -> None:
+
+        calmar = _calmar_series(net_worth, epsilon=self._epsilon)
+        self._ensure_fig()
+        self.fig.layout.title = self._create_log_entry(episode, max_episodes, step, max_steps)
+        self.fig.data[0].update({'x': calmar.index, 'y': calmar, 'name': calmar.name})
+        if self._show_chart:
+            display(self.fig)
+            self.fig.show()
+
+    def save(self, root_path: str | None = None) -> None:
+        if not self._save_format:
+            return
+        valid_formats = ['html', 'png', 'jpeg', 'webp', 'svg', 'pdf', 'eps']
+        _check_valid_format(valid_formats, self._save_format)
+        _check_path(self._path)
+        filename = _create_auto_file_name(self._filename_prefix, self._save_format)
+        filename = os.path.join(root_path or self._path, filename)
+        if self._save_format == 'html':
+            self.fig.write_html(file=filename, include_plotlyjs='cdn', auto_open=False)
+        else:
+            self.fig.write_image(filename)
+
+    def reset(self) -> None:
+        self.fig = None
+
+
+class HitRatioPlotlyRenderer(BaseRenderer):
+    """Plots running hit ratio computed from net worth using Plotly."""
+
+    def __init__(self,
+                 display: bool = True,
+                 height: int | None = 500,
+                 save_format: str | None = None,
+                 path: str = 'charts',
+                 filename_prefix: str = 'hit_ratio_') -> None:
+        super().__init__()
+        self._height = height
+        self._show_chart = display
+        self._save_format = save_format
+        self._path = path
+        self._filename_prefix = filename_prefix
+        self.fig = None
+        if self._save_format and self._path and not os.path.exists(path):
+            os.mkdir(path)
+
+    def _ensure_fig(self):
+        if self.fig is None:
+            if not importlib.util.find_spec("plotly"):
+                raise RuntimeError("Plotly is not installed but required for HitRatioPlotlyRenderer.")
+            fig = go.Figure()
+            fig.update_layout(template='plotly_white', height=self._height, margin=dict(t=50))
+            fig.add_scatter(mode='lines', name='Hit Ratio')
+            self.fig = _as_plotly_figure(fig)
+
+    def render_env(self,
+                   episode: int = None,
+                   max_episodes: int = None,
+                   step: int = None,
+                   max_steps: int = None,
+                   price_history: 'pd.DataFrame' = None,
+                   net_worth: 'pd.Series' = None,
+                   performance: 'pd.DataFrame' = None,
+                   trades: 'OrderedDict' = None) -> None:
+
+        hit_ratio = _hit_ratio_series(net_worth)
+        self._ensure_fig()
+        self.fig.layout.title = self._create_log_entry(episode, max_episodes, step, max_steps)
+        self.fig.data[0].update({'x': hit_ratio.index, 'y': hit_ratio, 'name': hit_ratio.name})
+        if self._show_chart:
+            display(self.fig)
+            self.fig.show()
+
+    def save(self, root_path: str | None = None) -> None:
+        if not self._save_format:
+            return
+        valid_formats = ['html', 'png', 'jpeg', 'webp', 'svg', 'pdf', 'eps']
+        _check_valid_format(valid_formats, self._save_format)
+        _check_path(self._path)
+        filename = _create_auto_file_name(self._filename_prefix, self._save_format)
+        filename = os.path.join(root_path or self._path, filename)
+        if self._save_format == 'html':
+            self.fig.write_html(file=filename, include_plotlyjs='cdn', auto_open=False)
+        else:
+            self.fig.write_image(filename)
+
+    def reset(self) -> None:
+        self.fig = None
+
+
+class TurnoverPlotlyRenderer(BaseRenderer):
+    """Plots cumulative turnover computed from executed trades using Plotly."""
+
+    def __init__(self,
+                 display: bool = True,
+                 height: int | None = 500,
+                 initial_capital: float | None = None,
+                 save_format: str | None = None,
+                 path: str = 'charts',
+                 filename_prefix: str = 'turnover_') -> None:
+        super().__init__()
+        self._height = height
+        self._show_chart = display
+        self._initial_capital = initial_capital
+        self._save_format = save_format
+        self._path = path
+        self._filename_prefix = filename_prefix
+        self.fig = None
+        if self._save_format and self._path and not os.path.exists(path):
+            os.mkdir(path)
+
+    def _ensure_fig(self):
+        if self.fig is None:
+            if not importlib.util.find_spec("plotly"):
+                raise RuntimeError("Plotly is not installed but required for TurnoverPlotlyRenderer.")
+            fig = go.Figure()
+            fig.update_layout(template='plotly_white', height=self._height, margin=dict(t=50))
+            fig.add_scatter(mode='lines', name='Cumulative Turnover')
+            self.fig = _as_plotly_figure(fig)
+
+    def render_env(self,
+                   episode: int = None,
+                   max_episodes: int = None,
+                   step: int = None,
+                   max_steps: int = None,
+                   price_history: 'pd.DataFrame' = None,
+                   net_worth: 'pd.Series' = None,
+                   performance: 'pd.DataFrame' = None,
+                   trades: 'OrderedDict' = None) -> None:
+
+        turnover = _turnover_series(net_worth, trades, self._initial_capital)
+        self._ensure_fig()
+        self.fig.layout.title = self._create_log_entry(episode, max_episodes, step, max_steps)
+        self.fig.data[0].update({'x': turnover.index, 'y': turnover, 'name': turnover.name})
+        if self._show_chart:
+            display(self.fig)
+            self.fig.show()
+
+    def save(self, root_path: str | None = None) -> None:
+        if not self._save_format:
+            return
+        valid_formats = ['html', 'png', 'jpeg', 'webp', 'svg', 'pdf', 'eps']
+        _check_valid_format(valid_formats, self._save_format)
+        _check_path(self._path)
+        filename = _create_auto_file_name(self._filename_prefix, self._save_format)
+        filename = os.path.join(root_path or self._path, filename)
+        if self._save_format == 'html':
+            self.fig.write_html(file=filename, include_plotlyjs='cdn', auto_open=False)
+        else:
+            self.fig.write_image(filename)
+
+    def reset(self) -> None:
+        self.fig = None
+
 _registry = {
     "screen-log": ScreenLogger,
     "file-log": FileLogger,
@@ -1558,10 +1849,60 @@ _registry = {
     "drawdown-matplot": DrawdownMatplotlibRenderer,
     "pnl-plotly": PnLPlotlyRenderer,
     "pnl-matplot": PnLMatplotlibRenderer,
+    "calmar-plotly": CalmarPlotlyRenderer,
+    "hitratio-plotly": HitRatioPlotlyRenderer,
+    "turnover-plotly": TurnoverPlotlyRenderer,
 }
 
 
-def construct_renderers(identifier: str, display: bool = True) -> 'BaseRenderer':
+class MultiFormatRenderer(Renderer):
+    """Wrapper that saves renderer outputs in multiple formats."""
+
+    def __init__(self, renderer: Renderer, formats: Sequence[str]) -> None:
+        super().__init__()
+        self._renderer = renderer
+        self._formats = [str(fmt).lower() for fmt in formats if fmt]
+
+    def render(self, env: 'TradingEnv', **kwargs):
+        self._renderer.render(env, **kwargs)
+
+    def save(self, root_path: str | None = None) -> None:
+        if not self._formats:
+            self._renderer.save(root_path)
+            return
+
+        original = getattr(self._renderer, "_save_format", None)
+        for fmt in self._formats:
+            try:
+                setattr(self._renderer, "_save_format", fmt)
+                self._renderer.save(root_path)
+            except ValueError as exc:
+                LOGGER.warning(
+                    "Renderer %s does not support format '%s': %s",
+                    self._renderer.__class__.__name__,
+                    fmt,
+                    exc,
+                )
+            except Exception as exc:  # pragma: no cover - defensive logging
+                LOGGER.exception(
+                    "Renderer %s failed to save format '%s': %s",
+                    self._renderer.__class__.__name__,
+                    fmt,
+                    exc,
+                )
+        if original is not None or hasattr(self._renderer, "_save_format"):
+            setattr(self._renderer, "_save_format", original)
+
+    def reset(self) -> None:
+        self._renderer.reset()
+
+    def close(self) -> None:
+        self._renderer.close()
+
+
+def construct_renderers(identifier: str,
+                        display: bool = True,
+                        save_formats: Optional[Sequence[str]] = ("png", "html")) -> 'BaseRenderer':
     """Gets the `BaseRenderer` that matches the identifier.
 
     Parameters
@@ -1580,11 +1921,19 @@ def construct_renderers(identifier: str, display: bool = True) -> 'BaseRenderer'
         Raised if identifier is not associated with any `BaseRenderer`
     """
     
-    def _get_one(identifier: str) -> 'BaseRenderer':
+    formats = list(save_formats) if save_formats is not None else []
+
+    def _wrap(renderer: 'BaseRenderer') -> Renderer:
+        if formats:
+            return MultiFormatRenderer(renderer, formats)
+        return renderer
+
+    def _get_one(identifier: str) -> Renderer:
         if identifier not in _registry.keys():
             msg = f"Identifier {identifier} is not associated with any `BaseRenderer`."
             raise KeyError(msg)
-        return _registry[identifier](display=display)
+        renderer = _registry[identifier](display=display)
+        return _wrap(renderer)
     
     print(f"Constructing renderers: {type(identifier)=}")
     

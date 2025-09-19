@@ -248,7 +248,8 @@ def main(cfg: DictConfig) -> None:
         
         # create renderers
         renderer_list = cfg.validation.get('renderers', 'all')
-        renderers = construct_renderers(renderer_list, display=False)
+        renderer_formats = cfg.validation.get('renderer_formats', ["png", "html"])
+        renderers = construct_renderers(renderer_list, display=False, save_formats=renderer_formats)
 
         env = default.create(
             portfolio=portfolio,
