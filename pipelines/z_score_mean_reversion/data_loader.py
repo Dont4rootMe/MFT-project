@@ -79,18 +79,22 @@ class SingleAssetDataLoader:
         processed = df.copy()
         processed["date"] = pd.to_datetime(processed["date"], utc=True)
         processed = processed.sort_values("date").reset_index(drop=True)
-
-        price_column = f"{self.config.currency}_close"
-        if price_column in processed.columns:
-            close_series = processed[["date", price_column]].copy()
-        elif "close" in processed.columns:
-            close_series = processed[["date", "close"]].copy()
-            close_series.rename(columns={"close": price_column}, inplace=True)
-        else:
-            raise ValueError("Processed data does not contain a close price column")
-
-        close_series[price_column] = close_series[price_column].astype(float)
-        return close_series
+        processed = processed.drop(columns=["unix"])
+        
+        date_column = ['date']
+        value_columns = ["close", "open", "high", "low", "volume"]
+        
+        processed = processed[date_column + value_columns]
+        processed[value_columns] = processed[value_columns].astype(float)
+        processed.rename(columns={
+            "close": f"{self.config.currency}_close", 
+            "open": f"{self.config.currency}_open", 
+            "high": f"{self.config.currency}_high", 
+            "low": f"{self.config.currency}_low",
+            "volume": f"{self.config.currency}_volume"}, 
+            inplace=True
+        )
+        return processed
 
 
 def build_data_loader(config: dict) -> SingleAssetDataLoader:

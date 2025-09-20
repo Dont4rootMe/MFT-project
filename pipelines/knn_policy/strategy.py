@@ -333,14 +333,14 @@ class KNNStrategy:
             if side > 0:
                 return 1
             if side < 0:
-                return 0
-            return self._current_action
+                return -1
+            return 0
 
         if target_weight > self.sim_config.tolerance:
             return 1
         if target_weight < -self.sim_config.tolerance:
-            return 0
-        return self._current_action
+            return -1
+        return 0
 
     # ------------------------------------------------------------------
     # Utility methods

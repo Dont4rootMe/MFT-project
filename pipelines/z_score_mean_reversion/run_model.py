@@ -58,71 +58,16 @@ def load_config(path: Optional[Path] = None) -> Dict[str, Any]:
         return yaml.safe_load(f)
 
 
-def _build_execution_service(slippage_rate: float):
-    if slippage_rate <= 0:
-        return execute_order
-
-    def _service(order, base_wallet, quote_wallet, current_price, options, clock):
-        price = current_price
-
-        def _apply_factor(value, factor):
-            if isinstance(value, Decimal):
-                return value * (Decimal(1) + Decimal(str(factor)))
-            return value * (1 + factor)
-
-        if order.is_buy:
-            price = _apply_factor(current_price, slippage_rate)
-        elif order.is_sell:
-            price = _apply_factor(current_price, -slippage_rate)
-        return execute_order(
-            order=order,
-            base_wallet=base_wallet,
-            quote_wallet=quote_wallet,
-            current_price=price,
-            options=options,
-            clock=clock,
-        )
-
-    return _service
-
-
 def build_environment(
     data: pd.DataFrame,
     env_config: Dict[str, Any],
     currency: str,
     main_currency: str,
-    strategy: ZScoreMeanReversionStrategy,
 ):
-    price_column = f"{currency}_close"
-    if price_column not in data.columns:
-        raise ValueError(f"Dataframe must contain column '{price_column}'")
-
-    exchange_cfg = env_config.get("exchange", "simulator")
     exchange_name = "simulator"
-    commission = strategy.config.fee_rate
-    slippage = strategy.config.slippage_rate
-    exchange_options_cfg: Dict[str, Any] = {}
+    commission = env_config.get("fee_rate")
 
-    if isinstance(exchange_cfg, dict):
-        exchange_name = str(exchange_cfg.get("name", exchange_name))
-        if "commission" in exchange_cfg:
-            commission = float(exchange_cfg["commission"])
-        if "slippage_rate" in exchange_cfg:
-            slippage = float(exchange_cfg["slippage_rate"])
-        exchange_options_cfg = exchange_cfg.get("options", {}) or {}
-    else:
-        exchange_name = str(exchange_cfg)
-
-    if "commission" in env_config:
-        commission = float(env_config["commission"])
-    if "slippage_rate" in env_config:
-        slippage = float(env_config["slippage_rate"])
-
-    if "commission" in exchange_options_cfg:
-        commission = float(exchange_options_cfg["commission"])
-    if "slippage_rate" in exchange_options_cfg:
-        slippage = float(exchange_options_cfg["slippage_rate"])
-
+    # prepare two instruments: USDT and currency
     if main_currency not in registry:
         Instrument(main_currency, 2, main_currency)
     base_instrument = registry[main_currency]
@@ -131,14 +76,17 @@ def build_environment(
         registry[currency] = Instrument(currency, 8, currency)
     asset_instrument = registry[currency]
 
+    # we do trade on close prices of previous day
+    price_column = f"{currency}_close"
     price_stream = Stream.source(list(data[price_column]), dtype="float").rename(
         f"{main_currency}-{currency}"
     )
 
+    # create exchange manager, simulating currency swapping between us and platform
     options = ExchangeOptions(commission=commission)
-    execution_service = _build_execution_service(slippage)
-    exchange = Exchange(exchange_name, service=execution_service, options=options)(price_stream)
+    exchange = Exchange(exchange_name, service=execute_order, options=options)(price_stream)
 
+    # creation of wallets for cash and asset
     initial_cash = float(env_config.get("initial_cash", 0.0))
     initial_amount = float(env_config.get("initial_amount", 0.0))
 
@@ -146,19 +94,18 @@ def build_environment(
     asset_wallet = Wallet(exchange, initial_amount * asset_instrument)
     portfolio = Portfolio(base_instrument, [cash_wallet, asset_wallet])
 
+    # adding stream from price data frame
     with NameSpace(exchange_name):
         feature_streams = [
             Stream.source(list(data[price_column]), dtype="float").rename(price_column)
         ]
 
-    close_values = list(data[price_column])
     renderer_streams = [
-        Stream.source(close_values, dtype="float").rename("close"),
-        Stream.source(close_values, dtype="float").rename("open"),
-        Stream.source(close_values, dtype="float").rename("high"),
-        Stream.source(close_values, dtype="float").rename("low"),
-        Stream.source([0.0] * len(close_values), dtype="float").rename("volume"),
-        Stream.source(close_values, dtype="float").rename(price_column),
+        Stream.source(data[f"{currency}_close"], dtype="float").rename("close"),
+        Stream.source(data[f"{currency}_open"], dtype="float").rename("open"),
+        Stream.source(data[f"{currency}_high"], dtype="float").rename("high"),
+        Stream.source(data[f"{currency}_low"], dtype="float").rename("low"),
+        Stream.source(data[f"{currency}_volume"], dtype="float").rename("volume"),
     ]
     if "date" in data.columns:
         renderer_streams.append(Stream.source(list(data["date"])).rename("date"))
@@ -173,20 +120,11 @@ def build_environment(
     renderer_formats = env_config.get("renderer_formats", ["png", "html"])
     renderers = None
     if renderer_cfg:
-        renderers = construct_renderers(renderer_cfg, display=False, save_formats=renderer_formats)
+        renderers = construct_renderers(renderer_cfg, display=True, save_formats=renderer_formats)
 
-    action_cfg = env_config.get("action_scheme")
-    try:
-        action_scheme = action_api.create(action_cfg)
-    except TypeError:
-        action_scheme = action_api.create(action_cfg, cash=cash_wallet, asset=asset_wallet)
-    if hasattr(action_scheme, "cash") and getattr(action_scheme, "cash", None) is None:
-        action_scheme.cash = cash_wallet
-    if hasattr(action_scheme, "asset") and getattr(action_scheme, "asset", None) is None:
-        action_scheme.asset = asset_wallet
 
-    reward_cfg = env_config.get("reward_scheme")
-    reward_scheme = reward_api.create(reward_cfg)
+    action_scheme = action_api.get('bsh', cash=cash_wallet, asset=asset_wallet, proportion=0.1) # always trade 10% of source wallet
+    reward_scheme = reward_api.get('simple')
 
     env_kwargs: Dict[str, Any] = {
         "portfolio": portfolio,
@@ -206,7 +144,7 @@ def build_environment(
 
 
 def run_strategy(env, strategy: ZScoreMeanReversionStrategy) -> float:
-    state, _ = env.reset(start_from_start=True)
+    state, _ = env.reset(begin_from_start=True)
     strategy.reset()
 
     done = False
@@ -245,8 +183,7 @@ def main(config_path: Optional[str] = None) -> None:
         price_frame,
         config.get("environment", {}),
         config["data"]["currency"],
-        config["data"].get("main_currency", "USDT"),
-        strategy,
+        config["data"].get("main_currency", "USDT")
     )
 
     final_reward = run_strategy(env, strategy)

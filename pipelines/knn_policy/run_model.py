@@ -87,37 +87,11 @@ def build_environment(
     env_config: Dict[str, Any],
     currency: str,
     main_currency: str,
-    strategy: KNNStrategy,
 ):
-    if "close" not in data.columns:
-        raise ValueError("Dataframe must contain a 'close' column")
-
-    exchange_cfg = env_config.get("exchange", "simulator")
     exchange_name = "simulator"
-    commission = strategy.config.fee_rate
-    slippage = strategy.config.slippage_rate
-    exchange_options_cfg: Dict[str, Any] = {}
+    commission = env_config.get("fee_rate")
 
-    if isinstance(exchange_cfg, dict):
-        exchange_name = str(exchange_cfg.get("name", exchange_name))
-        if "commission" in exchange_cfg:
-            commission = float(exchange_cfg["commission"])
-        if "slippage_rate" in exchange_cfg:
-            slippage = float(exchange_cfg["slippage_rate"])
-        exchange_options_cfg = exchange_cfg.get("options", {}) or {}
-    else:
-        exchange_name = str(exchange_cfg)
-
-    if "commission" in env_config:
-        commission = float(env_config["commission"])
-    if "slippage_rate" in env_config:
-        slippage = float(env_config["slippage_rate"])
-
-    if "commission" in exchange_options_cfg:
-        commission = float(exchange_options_cfg["commission"])
-    if "slippage_rate" in exchange_options_cfg:
-        slippage = float(exchange_options_cfg["slippage_rate"])
-
+    # prepare two instruments: USDT and currency
     if main_currency not in registry:
         Instrument(main_currency, 2, main_currency)
     base_instrument = registry[main_currency]
@@ -126,14 +100,17 @@ def build_environment(
         registry[currency] = Instrument(currency, 8, currency)
     asset_instrument = registry[currency]
 
-    price_stream = Stream.source(list(data["close"]), dtype="float").rename(
+    # we do trade on close prices of previous day
+    price_column = f"{currency}_close"
+    price_stream = Stream.source(list(data[price_column]), dtype="float").rename(
         f"{main_currency}-{currency}"
     )
 
+    # create exchange manager, simulating currency swapping between us and platform
     options = ExchangeOptions(commission=commission)
-    execution_service = _build_execution_service(slippage)
-    exchange = Exchange(exchange_name, service=execution_service, options=options)(price_stream)
+    exchange = Exchange(exchange_name, service=execute_order, options=options)(price_stream)
 
+    # creation of wallets for cash and asset
     initial_cash = float(env_config.get("initial_cash", 0.0))
     initial_amount = float(env_config.get("initial_amount", 0.0))
 
@@ -141,20 +118,21 @@ def build_environment(
     asset_wallet = Wallet(exchange, initial_amount * asset_instrument)
     portfolio = Portfolio(base_instrument, [cash_wallet, asset_wallet])
 
+    # adding stream from price data frame
     with NameSpace(exchange_name):
-        feature_streams = [Stream.source(list(data["close"]), dtype="float").rename("close")]
+        feature_streams = [
+            Stream.source(list(data[price_column]), dtype="float").rename(price_column)
+        ]
 
-    renderer_streams = list(feature_streams)
-    renderer_streams.append(
-        Stream.source(list(data["close"]), dtype="float").rename("close")
-    )
-    for column in ("open", "high", "low", "volume"):
-        if column in data.columns:
-            renderer_streams.append(
-                Stream.source(list(data[column]), dtype="float").rename(column)
-            )
-    if "timestamp" in data.columns:
-        renderer_streams.append(Stream.source(list(data["timestamp"])).rename("timestamp"))
+    renderer_streams = [
+        Stream.source(data[f"{currency}_close"], dtype="float").rename("close"),
+        Stream.source(data[f"{currency}_open"], dtype="float").rename("open"),
+        Stream.source(data[f"{currency}_high"], dtype="float").rename("high"),
+        Stream.source(data[f"{currency}_low"], dtype="float").rename("low"),
+        Stream.source(data[f"{currency}_volume"], dtype="float").rename("volume"),
+    ]
+    if "date" in data.columns:
+        renderer_streams.append(Stream.source(list(data["date"])).rename("date"))
 
     feed = DataFeed(feature_streams)
     feed.compile()
@@ -166,20 +144,11 @@ def build_environment(
     renderer_formats = env_config.get("renderer_formats", ["png", "html"])
     renderers = None
     if renderer_cfg:
-        renderers = construct_renderers(renderer_cfg, display=False, save_formats=renderer_formats)
+        renderers = construct_renderers(renderer_cfg, display=True, save_formats=renderer_formats)
 
-    action_cfg = env_config.get("action_scheme")
-    try:
-        action_scheme = action_api.create(action_cfg)
-    except TypeError:
-        action_scheme = action_api.create(action_cfg, cash=cash_wallet, asset=asset_wallet)
-    if hasattr(action_scheme, "cash") and getattr(action_scheme, "cash", None) is None:
-        action_scheme.cash = cash_wallet
-    if hasattr(action_scheme, "asset") and getattr(action_scheme, "asset", None) is None:
-        action_scheme.asset = asset_wallet
 
-    reward_cfg = env_config.get("reward_scheme")
-    reward_scheme = reward_api.create(reward_cfg)
+    action_scheme = action_api.get('bsh', cash=cash_wallet, asset=asset_wallet, proportion=0.1) # always trade 10% of source wallet
+    reward_scheme = reward_api.get('simple')
 
     env_kwargs: Dict[str, Any] = {
         "portfolio": portfolio,

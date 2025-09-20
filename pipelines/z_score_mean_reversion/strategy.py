@@ -22,8 +22,6 @@ class StrategyConfig:
     ewma_lambda: float
     target_volatility: float
     volatility_floor: float
-    fee_rate: float
-    slippage_rate: float
 
 
 @dataclass
@@ -75,7 +73,6 @@ class ZScoreMeanReversionStrategy:
         self._last_log_price: Optional[float] = None
         self._ewma_vol: Optional[float] = None
         self._discrete_side: int = 0
-        self._current_action: int = 0
         self._step: int = 0
         self._history: List[Dict[str, float]] = []
 
@@ -89,7 +86,6 @@ class ZScoreMeanReversionStrategy:
         self._last_log_price = None
         self._ewma_vol = None
         self._discrete_side = 0
-        self._current_action = 0
         self._step = 0
         self._history = []
 
@@ -133,7 +129,6 @@ class ZScoreMeanReversionStrategy:
             }
         )
 
-        self._current_action = action
         self._discrete_side = discrete_side
         self._step += 1
         return action
@@ -236,10 +231,10 @@ class ZScoreMeanReversionStrategy:
 
     def _decide_action(self, target_weight: float) -> int:
         if target_weight > self.sim_config.tolerance:
-            return 1
+            return -1
         if target_weight < -self.sim_config.tolerance:
-            return 0
-        return self._current_action
+            return 1
+        return 0
 
 
 def build_strategy(config: Dict, simulation: Dict) -> ZScoreMeanReversionStrategy:
@@ -254,8 +249,6 @@ def build_strategy(config: Dict, simulation: Dict) -> ZScoreMeanReversionStrateg
         ewma_lambda=float(config["ewma_lambda"]),
         target_volatility=float(config["target_volatility"]),
         volatility_floor=float(config["volatility_floor"]),
-        fee_rate=float(config["fee_rate"]),
-        slippage_rate=float(config["slippage_rate"]),
     )
 
     sim_cfg = SimulationConfig(
