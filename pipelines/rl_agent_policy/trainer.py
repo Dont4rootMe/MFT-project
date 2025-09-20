@@ -232,16 +232,16 @@ def main(cfg: DictConfig) -> None:
         renderer_feed = DataFeed(renderer_streams)
         renderer_feed.compile()
 
-        action_cfg = cfg.get("action_scheme")
-        try:
-            action_scheme = action_api.create(action_cfg)
-        except TypeError:
-            params = {"cash": cash}
-            if len(asset_wallets) == 1:
-                params["asset"] = asset_wallets[0]
-            else:
-                params["assets"] = asset_wallets
-            action_scheme = action_api.create(action_cfg, **params)
+        action_scheme = action_api.get(
+            'simple',
+            portfolio=portfolio,
+            criteria=[None],
+            trade_sizes=[0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4],
+            min_order_abs=0,
+            min_order_pct=0,
+        )
+        
+        reward_scheme = reward_api.get('risk-adjusted')
 
         reward_cfg = cfg.get("reward_scheme")
         reward_scheme = reward_api.create(reward_cfg)

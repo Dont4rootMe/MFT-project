@@ -357,7 +357,7 @@ class PlotlyTradingChart(BaseRenderer):
                  width: int = None,
                  timestamp_format: str = '%Y-%m-%d %H:%M:%S',
                  save_format: str = 'html',
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'trading_chart_',
                  auto_open_html: bool = False,
                  include_plotlyjs: Union[bool, str] = 'cdn') -> None:
@@ -797,7 +797,7 @@ class PnLWithOrdersChart(BaseRenderer):
                  height: int = 600,
                  width: int = None,
                  save_format: str = 'html',
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'pnl_orders_',
                  auto_open_html: bool = False,
                  include_plotlyjs: Union[bool, str] = 'cdn') -> None:
@@ -973,7 +973,7 @@ class CurrencyPriceChart(BaseRenderer):
                  height: int = 500,
                  width: int = None,
                  save_format: str = 'html',
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'price_',
                  auto_open_html: bool = False,
                  include_plotlyjs: Union[bool, str] = 'cdn') -> None:
@@ -1107,7 +1107,7 @@ class SimplePnLChart(BaseRenderer):
                  height: int = 400,
                  width: int = None,
                  save_format: str = 'html',
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'simple_pnl_',
                  auto_open_html: bool = False,
                  include_plotlyjs: Union[bool, str] = 'cdn') -> None:
@@ -1351,7 +1351,7 @@ class MatplotlibTradingChart(BaseRenderer):
     def __init__(self,
                  display: bool = True,
                  save_format: str = 'png',
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'chart_') -> None:
         super().__init__()
         self._volume_chart_height = 0.33
@@ -1367,7 +1367,7 @@ class MatplotlibTradingChart(BaseRenderer):
         self._path = path
         self._filename_prefix = filename_prefix
 
-        if self._save_format and self._path and not os.path.exists(path):
+        if path is not None and self._save_format and self._path and not os.path.exists(path):
             os.mkdir(path)
 
     def _create_figure(self) -> None:
@@ -1566,7 +1566,7 @@ class SharpePlotlyRenderer(BaseRenderer):
                  annualize: bool = True,
                  periods_per_year: int = 252,
                  save_format: str | None = 'html',
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'sharpe_') -> None:
         super().__init__()
         self._height = height
@@ -1579,7 +1579,7 @@ class SharpePlotlyRenderer(BaseRenderer):
         self._path = path
         self._filename_prefix = filename_prefix
         self.fig = None
-        if self._save_format and self._path and not os.path.exists(path):
+        if path is not None and self._save_format and self._path and not os.path.exists(path):
             os.mkdir(path)
 
     def _ensure_fig(self):
@@ -1653,7 +1653,7 @@ class SharpeMatplotlibRenderer(BaseRenderer):
                  annualize: bool = True,
                  periods_per_year: int = 252,
                  save_format: str | None = 'png',
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'sharpe_') -> None:
         super().__init__()
         self._show_chart = display
@@ -1665,7 +1665,7 @@ class SharpeMatplotlibRenderer(BaseRenderer):
         self._filename_prefix = filename_prefix
         self.fig = None
         self.ax = None
-        if self._save_format and self._path and not os.path.exists(path):
+        if path is not None and self._save_format and self._path and not os.path.exists(path):
             os.mkdir(path)
 
     def _ensure_fig(self):
@@ -1742,7 +1742,7 @@ class PnLExtremaPlotlyRenderer(BaseRenderer):
                  height: int | None = 600,
                  width: int | None = None,
                  save_format: str | None = 'html',
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'pnl_extrema_') -> None:
         super().__init__()
         self._height = height
@@ -1752,7 +1752,7 @@ class PnLExtremaPlotlyRenderer(BaseRenderer):
         self._path = path
         self._filename_prefix = filename_prefix
         self.fig = None
-        if self._save_format and self._path and not os.path.exists(path):
+        if path is not None and self._save_format and self._path and not os.path.exists(path):
             os.mkdir(path)
 
     def _ensure_fig(self):
@@ -1830,7 +1830,7 @@ class PnLExtremaMatplotlibRenderer(BaseRenderer):
     def __init__(self,
                  display: bool = True,
                  save_format: str | None = 'png',
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'pnl_extrema_') -> None:
         super().__init__()
         self._show_chart = display
@@ -1840,7 +1840,7 @@ class PnLExtremaMatplotlibRenderer(BaseRenderer):
         self.fig = None
         self.ax_up = None
         self.ax_down = None
-        if self._save_format and self._path and not os.path.exists(path):
+        if path is not None and self._save_format and self._path and not os.path.exists(path):
             os.mkdir(path)
 
     def _ensure_fig(self):
@@ -2027,7 +2027,7 @@ class CalmarMatplotlibRenderer(BaseRenderer):
                  display: bool = True,
                  periods_per_year: int = 252,
                  save_format: str | None = 'png',
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'calmar_') -> None:
         super().__init__()
         self._show_chart = display
@@ -2037,7 +2037,7 @@ class CalmarMatplotlibRenderer(BaseRenderer):
         self._filename_prefix = filename_prefix
         self.fig = None
         self.ax = None
-        if self._save_format and self._path and not os.path.exists(path):
+        if path is not None and self._save_format and self._path and not os.path.exists(path):
             os.mkdir(path)
     def _ensure_fig(self):
         if self.fig is None:
@@ -2069,7 +2069,7 @@ class HitRatioMatplotlibRenderer(BaseRenderer):
     def __init__(self,
                  display: bool = True,
                  save_format: str | None = 'png',
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'hitratio_') -> None:
         super().__init__()
         self._show_chart = display
@@ -2078,7 +2078,7 @@ class HitRatioMatplotlibRenderer(BaseRenderer):
         self._filename_prefix = filename_prefix
         self.fig = None
         self.ax = None
-        if self._save_format and self._path and not os.path.exists(path):
+        if path is not None and self._save_format and self._path and not os.path.exists(path):
             os.mkdir(path)
     def _ensure_fig(self):
         if self.fig is None:
@@ -2112,7 +2112,7 @@ class TurnoverMatplotlibRenderer(BaseRenderer):
     def __init__(self,
                  display: bool = True,
                  save_format: str | None = 'png',
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'turnover_') -> None:
         super().__init__()
         self._show_chart = display
@@ -2121,7 +2121,7 @@ class TurnoverMatplotlibRenderer(BaseRenderer):
         self._filename_prefix = filename_prefix
         self.fig = None
         self.ax = None
-        if self._save_format and self._path and not os.path.exists(path):
+        if path is not None and self._save_format and self._path and not os.path.exists(path):
             os.mkdir(path)
     def _ensure_fig(self):
         if self.fig is None:
@@ -2155,7 +2155,7 @@ class ROIPlotlyRenderer(BaseRenderer):
                  height: int | None = 500,
                  width: int | None = None,
                  save_format: str | None = None,
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'roi_') -> None:
         super().__init__()
         self._height = height
@@ -2165,7 +2165,7 @@ class ROIPlotlyRenderer(BaseRenderer):
         self._path = path
         self._filename_prefix = filename_prefix
         self.fig = None
-        if self._save_format and self._path and not os.path.exists(path):
+        if path is not None and self._save_format and self._path and not os.path.exists(path):
             os.mkdir(path)
 
     def _ensure_fig(self):
@@ -2237,7 +2237,7 @@ class ROIMatplotlibRenderer(BaseRenderer):
     def __init__(self,
                  display: bool = True,
                  save_format: str | None = 'png',
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'roi_') -> None:
         super().__init__()
         self._show_chart = display
@@ -2246,7 +2246,7 @@ class ROIMatplotlibRenderer(BaseRenderer):
         self._filename_prefix = filename_prefix
         self.fig = None
         self.ax = None
-        if self._save_format and self._path and not os.path.exists(path):
+        if path is not None and self._save_format and self._path and not os.path.exists(path):
             os.mkdir(path)
 
     def _ensure_fig(self):
@@ -2297,7 +2297,7 @@ class DrawdownPlotlyRenderer(BaseRenderer):
                  height: int | None = 500,
                  width: int | None = None,
                  save_format: str | None = 'html',
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'drawdown_') -> None:
         super().__init__()
         self._height = height
@@ -2307,7 +2307,7 @@ class DrawdownPlotlyRenderer(BaseRenderer):
         self._path = path
         self._filename_prefix = filename_prefix
         self.fig = None
-        if self._save_format and self._path and not os.path.exists(path):
+        if path is not None and self._save_format and self._path and not os.path.exists(path):
             os.mkdir(path)
 
     def _ensure_fig(self):
@@ -2379,7 +2379,7 @@ class DrawdownMatplotlibRenderer(BaseRenderer):
     def __init__(self,
                  display: bool = True,
                  save_format: str | None = 'png',
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'drawdown_') -> None:
         super().__init__()
         self._show_chart = display
@@ -2388,7 +2388,7 @@ class DrawdownMatplotlibRenderer(BaseRenderer):
         self._filename_prefix = filename_prefix
         self.fig = None
         self.ax = None
-        if self._save_format and self._path and not os.path.exists(path):
+        if path is not None and self._save_format and self._path and not os.path.exists(path):
             os.mkdir(path)
 
     def _ensure_fig(self):
@@ -2439,7 +2439,7 @@ class PnLPlotlyRenderer(BaseRenderer):
                  height: int | None = 500,
                  width: int | None = None,
                  save_format: str | None = 'html',
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'pnl_') -> None:
         super().__init__()
         self._height = height
@@ -2449,7 +2449,7 @@ class PnLPlotlyRenderer(BaseRenderer):
         self._path = path
         self._filename_prefix = filename_prefix
         self.fig = None
-        if self._save_format and self._path and not os.path.exists(path):
+        if path is not None and self._save_format and self._path and not os.path.exists(path):
             os.mkdir(path)
 
     def _ensure_fig(self):
@@ -2520,7 +2520,7 @@ class PnLMatplotlibRenderer(BaseRenderer):
     def __init__(self,
                  display: bool = True,
                  save_format: str | None = None,
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'pnl_') -> None:
         super().__init__()
         self._show_chart = display
@@ -2529,7 +2529,7 @@ class PnLMatplotlibRenderer(BaseRenderer):
         self._filename_prefix = filename_prefix
         self.fig = None
         self.ax = None
-        if self._save_format and self._path and not os.path.exists(path):
+        if path is not None and self._save_format and self._path and not os.path.exists(path):
             os.mkdir(path)
 
     def _ensure_fig(self):
@@ -2581,7 +2581,7 @@ class CalmarPlotlyRenderer(BaseRenderer):
                  width: int | None = None,
                  periods_per_year: int = 252,
                  save_format: str | None = None,
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'calmar_') -> None:
         super().__init__()
         self._height = height
@@ -2592,7 +2592,7 @@ class CalmarPlotlyRenderer(BaseRenderer):
         self._path = path
         self._filename_prefix = filename_prefix
         self.fig = None
-        if self._save_format and self._path and not os.path.exists(path):
+        if path is not None and self._save_format and self._path and not os.path.exists(path):
             os.mkdir(path)
 
     def _ensure_fig(self):
@@ -2667,7 +2667,7 @@ class HitRatioPlotlyRenderer(BaseRenderer):
                  height: int | None = 500,
                  width: int | None = None,
                  save_format: str | None = None,
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'hit_ratio_') -> None:
         super().__init__()
         self._height = height
@@ -2677,7 +2677,7 @@ class HitRatioPlotlyRenderer(BaseRenderer):
         self._path = path
         self._filename_prefix = filename_prefix
         self.fig = None
-        if self._save_format and self._path and not os.path.exists(path):
+        if path is not None and self._save_format and self._path and not os.path.exists(path):
             os.mkdir(path)
 
     def _ensure_fig(self):
@@ -2754,7 +2754,7 @@ class TurnoverPlotlyRenderer(BaseRenderer):
                  width: int | None = None,
                  initial_capital: float | None = None,
                  save_format: str | None = None,
-                 path: str = 'charts',
+                 path: str | None = None,
                  filename_prefix: str = 'turnover_') -> None:
         super().__init__()
         self._height = height
@@ -2765,7 +2765,7 @@ class TurnoverPlotlyRenderer(BaseRenderer):
         self._path = path
         self._filename_prefix = filename_prefix
         self.fig = None
-        if self._save_format and self._path and not os.path.exists(path):
+        if path is not None and self._save_format and self._path and not os.path.exists(path):
             os.mkdir(path)
 
     def _ensure_fig(self):
