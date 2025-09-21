@@ -113,7 +113,13 @@ def main(cfg: DictConfig) -> None:
     if cfg.debug_logging:
         logging.basicConfig(level=logging.DEBUG)
     else:
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(level=logging.ERROR)  # Only show errors, suppress warnings
+        
+        # Suppress warnings from specific modules
+        logging.getLogger('root').setLevel(logging.ERROR)
+        logging.getLogger('tensortrade').setLevel(logging.ERROR)
+        logging.getLogger('matplotlib').setLevel(logging.ERROR)
+        logging.getLogger('plotly').setLevel(logging.ERROR)
     
     # Log process information
     if is_main_process or num_processes == 1:
@@ -141,12 +147,12 @@ def main(cfg: DictConfig) -> None:
     else:
         raise TypeError("validation_size must be int or float")
 
-    base_train_df = data.iloc[:split_idx].reset_index(drop=True)
-    base_valid_df = data.iloc[split_idx:].reset_index(drop=True)
+    base_train_df = data.iloc[:split_idx].reset_index(drop=True).copy()
+    base_valid_df = data.iloc[split_idx:].reset_index(drop=True).copy()
     
     # Create process-specific data splits for parallel training
     train_df, valid_df = _create_process_specific_data_split(
-        base_train_df, base_valid_df, process_index, num_processes
+        base_train_df, base_valid_df, 0, 1
     )
     
     if is_main_process or num_processes == 1:
@@ -307,6 +313,7 @@ def main(cfg: DictConfig) -> None:
         valid_env=valid_env, 
         output_dir=output_dir, 
         config=train_config,
+        max_episode_length=cfg.env.get('max_episode_length', None),
         use_accelerate=use_accelerate
     )
     trainer.train()

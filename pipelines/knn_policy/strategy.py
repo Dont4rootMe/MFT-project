@@ -1,9 +1,10 @@
-"""Streaming implementation of a KNN-based trading policy."""
+"""Streaming implementation of a KNN-based trading agent."""
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Deque
 
 import numpy as np
 import pandas as pd
@@ -30,8 +31,6 @@ class StrategyConfig:
     ewma_lambda: float
     target_volatility: float
     volatility_floor: float
-    fee_rate: float
-    slippage_rate: float
 
     def __post_init__(self) -> None:
         mode_normalized = self.mode.lower()
@@ -61,10 +60,6 @@ class StrategyConfig:
             raise ValueError("target_volatility must be positive")
         if self.volatility_floor <= 0:
             raise ValueError("volatility_floor must be positive")
-        if self.fee_rate < 0:
-            raise ValueError("fee_rate must be non-negative")
-        if self.slippage_rate < 0:
-            raise ValueError("slippage_rate must be non-negative")
 
 
 @dataclass
@@ -83,105 +78,117 @@ class SimulationConfig:
 
 
 class KNNStrategy:
-    """Sequential KNN learner operating on rolling log-return windows."""
+    """Streaming KNN agent that learns from incremental observations."""
 
     def __init__(
         self,
         strategy_config: StrategyConfig,
         simulation_config: SimulationConfig,
-        price_frame: pd.DataFrame,
     ) -> None:
         self.config = strategy_config
         self.sim_config = simulation_config
 
-        if "close" not in price_frame.columns:
-            raise ValueError("price_frame must contain a 'close' column")
-        if "log_return" not in price_frame.columns:
-            raise ValueError("price_frame must contain a 'log_return' column")
-
-        self._timestamps = pd.to_datetime(price_frame["timestamp"].to_numpy())
-        self._prices = price_frame["close"].to_numpy(dtype=float)
-        self._returns = price_frame["log_return"].to_numpy(dtype=float)
-
-        if np.any(~np.isfinite(self._prices)):
-            raise ValueError("price data contains non-finite values")
-
-        self._feature_matrix = self._build_feature_matrix(self._returns, self.config.window)
-        self._future_sum = self._build_future_returns(self._returns, self.config.horizon)
-        self._classification_target = np.sign(self._future_sum)
-
-        valid_features = ~np.isnan(self._feature_matrix).any(axis=1)
-        valid_targets = ~np.isnan(self._future_sum)
-        self._train_mask = valid_features & valid_targets
-        self._train_indices = np.where(self._train_mask)[0]
-
-        feature_start = max(self.config.window - 1, 0)
-        obs_start = self.sim_config.observation_start or 0
-        self._start_index = max(feature_start, obs_start)
-
-        self._history: List[Dict[str, float]] = []
-        self._current_action: int = 0
-        self._current_index: int = self._start_index
+        # Streaming data buffers
+        self._prices: Deque[float] = deque()
+        self._returns: Deque[float] = deque()
+        self._timestamps: Deque[pd.Timestamp] = deque()
+        
+        # Historical feature matrix and targets for training
+        self._historical_features: List[np.ndarray] = []
+        self._historical_targets: List[float] = []
+        self._historical_classifications: List[int] = []
+        
+        # Current state
+        self._last_price: Optional[float] = None
+        self._current_features: Optional[np.ndarray] = None
         self._ewma_vol: Optional[float] = None
         self._step: int = 0
+        self._history: List[Dict[str, float]] = []
+        
+        # Future return calculation buffer for training data
+        self._future_return_buffer: Deque[float] = deque(maxlen=self.config.horizon)
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
     def reset(self) -> None:
-        self._history = []
-        self._current_action = 0
-        self._current_index = self._start_index
+        """Reset all streaming state for a new episode."""
+        self._prices.clear()
+        self._returns.clear()
+        self._timestamps.clear()
+        self._historical_features.clear()
+        self._historical_targets.clear()
+        self._historical_classifications.clear()
+        self._future_return_buffer.clear()
+        
+        self._last_price = None
+        self._current_features = None
         self._ewma_vol = None
         self._step = 0
+        self._history = []
 
     def get_action(self, observation: np.ndarray) -> int:
+        """Get action from streaming observation without future data access."""
         price = self._extract_price(observation)
-        timestamp = self._get_timestamp(self._current_index)
+        timestamp = pd.Timestamp.now()
+        
+        # Initialize tracking variables
         expected_return = 0.0
         side = 0
         neighbors = 0
         neighbor_weight = 0.0
-        volatility = self._update_volatility(self._current_index)
-        scaling = self._volatility_scaling(volatility)
+        volatility = 0.0
+        scaling = 1.0
         raw_weight = 0.0
         target_weight = 0.0
-
-        idx = self._current_index
-        if idx < len(self._prices) and idx >= self.config.window - 1:
-            knn_result = self._evaluate_knn(idx)
-            if knn_result is not None:
-                neighbors = knn_result["neighbors"]
-                neighbor_weight = knn_result["weight_sum"]
-                if self.config.mode == "classification":
-                    side = self._decide_side(knn_result["weighted_side"])
-                else:
-                    expected_return = knn_result["expected_return"]
-                    raw_weight = self._compute_raw_weight(expected_return, volatility)
-                    target_weight = raw_weight * scaling
+        
+        if price is not None and price > 0:
+            # Update streaming buffers
+            self._update_streaming_data(price, timestamp)
+            
+            # Update volatility
+            volatility = self._update_streaming_volatility()
+            scaling = self._volatility_scaling(volatility)
+            
+            # Build current features if we have enough data
+            if len(self._returns) >= self.config.window:
+                self._current_features = self._build_current_features()
+                
+                # Evaluate KNN if we have training data and current features
+                if len(self._historical_features) > 0 and self._current_features is not None:
+                    knn_result = self._evaluate_knn()
+                    if knn_result is not None:
+                        neighbors = knn_result["neighbors"]
+                        neighbor_weight = knn_result["weight_sum"]
+                        
+                        if self.config.mode == "classification":
+                            side = self._decide_side(knn_result["weighted_side"])
+                        else:
+                            expected_return = knn_result["expected_return"]
+                            raw_weight = self._compute_raw_weight(expected_return, volatility)
+                            target_weight = raw_weight * scaling
 
         action = self._decide_action(side, target_weight)
-
-        self._history.append(
-            {
-                "step": self._step,
-                "timestamp": timestamp,
-                "price": price,
-                "index": float(idx),
-                "side": float(side),
-                "expected_return": float(expected_return),
-                "neighbors": float(neighbors),
-                "neighbor_weight": float(neighbor_weight),
-                "volatility": float(volatility),
-                "vol_target": float(scaling),
-                "raw_weight": float(raw_weight),
-                "target_weight": float(target_weight),
-                "action": float(action),
-            }
-        )
-
-        self._current_action = action
-        self._current_index += 1
+        
+        # Record history
+        self._history.append({
+            "step": self._step,
+            "timestamp": timestamp,
+            "price": price,
+            "side": float(side),
+            "expected_return": float(expected_return),
+            "neighbors": float(neighbors),
+            "neighbor_weight": float(neighbor_weight),
+            "volatility": float(volatility),
+            "vol_target": float(scaling),
+            "raw_weight": float(raw_weight),
+            "target_weight": float(target_weight),
+            "action": float(action),
+        })
+        
+        # Update training data after we have enough future returns
+        self._update_training_data()
+        
         self._step += 1
         return action
 
@@ -207,21 +214,96 @@ class KNNStrategy:
         return pd.DataFrame(self._history)
 
     # ------------------------------------------------------------------
-    # KNN helpers
+    # Streaming data management
     # ------------------------------------------------------------------
-    def _evaluate_knn(self, index: int) -> Optional[Dict[str, float]]:
-        if index >= len(self._prices):
+    def _update_streaming_data(self, price: float, timestamp: pd.Timestamp) -> None:
+        """Update streaming buffers with new price observation."""
+        self._prices.append(price)
+        self._timestamps.append(timestamp)
+        
+        # Calculate log return if we have previous price
+        if self._last_price is not None:
+            log_return = np.log(price / self._last_price)
+            self._returns.append(log_return)
+            self._future_return_buffer.append(log_return)
+        
+        self._last_price = price
+        
+        # Keep only necessary history (window + horizon for training)
+        max_history = self.config.window + self.config.horizon + 100  # Extra buffer
+        while len(self._prices) > max_history:
+            self._prices.popleft()
+            self._timestamps.popleft()
+        while len(self._returns) > max_history - 1:  # Returns are one less than prices
+            self._returns.popleft()
+
+    def _build_current_features(self) -> Optional[np.ndarray]:
+        """Build feature vector from current return window."""
+        if len(self._returns) < self.config.window:
             return None
-        if np.isnan(self._feature_matrix[index]).any():
+        
+        # Get the most recent window of returns
+        recent_returns = list(self._returns)[-self.config.window:]
+        features = np.array(recent_returns, dtype=float)
+        
+        if np.any(~np.isfinite(features)):
+            return None
+            
+        return features
+
+    def _update_training_data(self) -> None:
+        """Update training data with completed feature-target pairs."""
+        # We can only create training data if we have enough returns for both 
+        # features and future targets
+        min_required = self.config.window + self.config.horizon
+        
+        if len(self._returns) < min_required:
+            return
+            
+        # Calculate how many new training samples we can create
+        current_training_samples = len(self._historical_features)
+        max_possible_samples = len(self._returns) - self.config.window - self.config.horizon + 1
+        
+        if max_possible_samples <= current_training_samples:
+            return
+            
+        # Create new training samples
+        returns_array = np.array(self._returns)
+        
+        for i in range(current_training_samples, max_possible_samples):
+            # Feature window starts at position i
+            feature_start = i
+            feature_end = i + self.config.window
+            
+            # Target window starts after feature window
+            target_start = feature_end
+            target_end = target_start + self.config.horizon
+            
+            if target_end <= len(returns_array):
+                features = returns_array[feature_start:feature_end].copy()
+                future_returns = returns_array[target_start:target_end]
+                
+                if np.all(np.isfinite(features)) and np.all(np.isfinite(future_returns)):
+                    target = float(np.sum(future_returns))
+                    classification = int(np.sign(target))
+                    
+                    self._historical_features.append(features)
+                    self._historical_targets.append(target)
+                    self._historical_classifications.append(classification)
+
+    # ------------------------------------------------------------------
+    # KNN evaluation
+    # ------------------------------------------------------------------
+    def _evaluate_knn(self) -> Optional[Dict[str, float]]:
+        """Evaluate KNN on current features using historical training data."""
+        if self._current_features is None or len(self._historical_features) == 0:
             return None
 
-        train_indices = self._training_indices_up_to(index - self.config.horizon)
-        if len(train_indices) == 0:
-            return None
+        # Convert historical features to matrix
+        train_x = np.array(self._historical_features)
+        query = self._current_features
 
-        query = self._feature_matrix[index]
-        train_x = self._feature_matrix[train_indices]
-
+        # Standardize features
         mean = train_x.mean(axis=0)
         std = train_x.std(axis=0, ddof=0)
         std[std < 1e-12] = 1.0
@@ -232,35 +314,40 @@ class KNNStrategy:
         if not np.all(np.isfinite(query_z)):
             return None
 
+        # Compute distances
         distances = self._compute_distances(train_z, query_z)
         finite_mask = np.isfinite(distances)
+        
         if not np.any(finite_mask):
             return None
 
-        train_indices = train_indices[finite_mask]
-        distances = distances[finite_mask]
-        train_z = train_z[finite_mask]
+        # Filter valid distances
+        valid_distances = distances[finite_mask]
+        valid_indices = np.where(finite_mask)[0]
 
-        order = np.argsort(distances)
+        # Select k nearest neighbors
+        order = np.argsort(valid_distances)
         k = min(self.config.neighbors, len(order))
         selected = order[:k]
 
-        distances = distances[selected]
-        train_indices = train_indices[selected]
+        selected_distances = valid_distances[selected]
+        selected_indices = valid_indices[selected]
 
-        gaussian_weights = np.exp(-0.5 * (distances / self.config.gaussian_bandwidth) ** 2)
-        decay = np.power(self.config.time_decay, index - train_indices)
-        weights = gaussian_weights * decay
+        # Calculate weights (no time decay in streaming version since all training data is historical)
+        gaussian_weights = np.exp(-0.5 * (selected_distances / self.config.gaussian_bandwidth) ** 2)
+        weights = gaussian_weights  # Could add time decay based on when training samples were added
 
         weight_sum = float(np.sum(weights))
         if weight_sum <= 0:
             return None
 
-        future_sum = self._future_sum[train_indices]
-        classification_target = self._classification_target[train_indices]
+        # Get targets for selected neighbors
+        selected_targets = [self._historical_targets[i] for i in selected_indices]
+        selected_classifications = [self._historical_classifications[i] for i in selected_indices]
 
-        weighted_side = float(np.dot(weights, classification_target))
-        expected_return = float(np.dot(weights, future_sum) / weight_sum)
+        # Compute weighted predictions
+        weighted_side = float(np.dot(weights, selected_classifications))
+        expected_return = float(np.dot(weights, selected_targets) / weight_sum)
 
         return {
             "neighbors": float(k),
@@ -283,22 +370,19 @@ class KNNStrategy:
         cosine_similarity = np.clip(cosine_similarity, -1.0, 1.0)
         return 1.0 - cosine_similarity
 
-    def _training_indices_up_to(self, limit: int) -> np.ndarray:
-        if limit < 0 or len(self._train_indices) == 0:
-            return np.array([], dtype=int)
-        pos = np.searchsorted(self._train_indices, limit, side="right")
-        return self._train_indices[:pos]
 
     # ------------------------------------------------------------------
     # Risk management
     # ------------------------------------------------------------------
-    def _update_volatility(self, index: int) -> float:
-        if index <= 0 or index >= len(self._returns):
+    def _update_streaming_volatility(self) -> float:
+        """Update EWMA volatility with the most recent return."""
+        if len(self._returns) == 0:
             if self._ewma_vol is None:
                 self._ewma_vol = self.config.volatility_floor
             return float(self._ewma_vol)
 
-        r_t = float(self._returns[index])
+        # Get most recent return
+        r_t = float(self._returns[-1])
         if not np.isfinite(r_t):
             r_t = 0.0
 
@@ -346,6 +430,7 @@ class KNNStrategy:
     # Utility methods
     # ------------------------------------------------------------------
     def _extract_price(self, observation: np.ndarray) -> Optional[float]:
+        """Extract price from observation array."""
         if observation is None:
             return None
         array = np.asarray(observation, dtype=float)
@@ -355,39 +440,45 @@ class KNNStrategy:
         if price <= 0:
             return None
         return price
-
-    def _get_timestamp(self, index: int) -> Optional[pd.Timestamp]:
-        if index < len(self._timestamps):
-            return pd.Timestamp(self._timestamps[index])
-        return None
-
-    @staticmethod
-    def _build_feature_matrix(returns: np.ndarray, window: int) -> np.ndarray:
-        n = len(returns)
-        features = np.full((n, window), np.nan, dtype=float)
-        if n >= window:
-            windows = np.lib.stride_tricks.sliding_window_view(returns, window)
-            features[window - 1 :, :] = windows
-        return features
-
-    @staticmethod
-    def _build_future_returns(returns: np.ndarray, horizon: int) -> np.ndarray:
-        n = len(returns)
-        future = np.full(n, np.nan, dtype=float)
-        if horizon <= 0 or n <= horizon:
-            return future
-        windows = np.lib.stride_tricks.sliding_window_view(returns[1:], horizon)
-        sums = windows.sum(axis=1)
-        future[: len(sums)] = sums
-        return future
+        
+    # ------------------------------------------------------------------
+    # Agent interface methods (for compatibility with TensorTrade Agent)
+    # ------------------------------------------------------------------
+    def save(self, path: str) -> None:
+        """Save the strategy state to a file."""
+        import pickle
+        state = {
+            'config': self.config,
+            'sim_config': self.sim_config,
+            'historical_features': self._historical_features,
+            'historical_targets': self._historical_targets,
+            'historical_classifications': self._historical_classifications,
+            'ewma_vol': self._ewma_vol,
+            'step': self._step
+        }
+        with open(path, 'wb') as f:
+            pickle.dump(state, f)
+    
+    def restore(self, path: str) -> None:
+        """Restore the strategy state from a file."""
+        import pickle
+        with open(path, 'rb') as f:
+            state = pickle.load(f)
+        
+        self.config = state['config']
+        self.sim_config = state['sim_config']
+        self._historical_features = state['historical_features']
+        self._historical_targets = state['historical_targets']
+        self._historical_classifications = state['historical_classifications']
+        self._ewma_vol = state['ewma_vol']
+        self._step = state['step']
 
 
 def build_strategy(
     strategy_cfg: Dict,
     simulation_cfg: Dict,
-    price_frame: pd.DataFrame,
-    observation_start: int,
 ) -> KNNStrategy:
+    """Build streaming KNN strategy without pre-loaded data."""
     strategy = StrategyConfig(
         mode=strategy_cfg["mode"],
         window=int(strategy_cfg["window"]),
@@ -401,14 +492,12 @@ def build_strategy(
         ewma_lambda=float(strategy_cfg.get("ewma_lambda", 0.94)),
         target_volatility=float(strategy_cfg.get("target_volatility", 0.02)),
         volatility_floor=float(strategy_cfg.get("volatility_floor", 1e-6)),
-        fee_rate=float(strategy_cfg.get("fee_rate", 0.0)),
-        slippage_rate=float(strategy_cfg.get("slippage_rate", 0.0)),
     )
 
     simulation = SimulationConfig(
         tolerance=float(simulation_cfg.get("tolerance", 1e-6)),
         warmup_steps=int(simulation_cfg.get("warmup_steps", 0)),
-        observation_start=int(simulation_cfg.get("observation_start", observation_start)),
+        observation_start=simulation_cfg.get("observation_start"),
     )
 
-    return KNNStrategy(strategy, simulation, price_frame)
+    return KNNStrategy(strategy, simulation)

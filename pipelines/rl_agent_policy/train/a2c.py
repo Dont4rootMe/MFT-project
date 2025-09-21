@@ -121,6 +121,7 @@ class A2CTrainer:
                  train_env, 
                  valid_env, 
                  output_dir, 
+                 max_episode_length,
                  config: Optional[A2CConfig] = None,
                  use_accelerate: Optional[bool | None] = None 
     ):
@@ -129,6 +130,7 @@ class A2CTrainer:
         self.valid_env = valid_env
         self.cfg = config or A2CConfig()
         self.output_dir = output_dir
+        self.max_episode_length = max_episode_length
         
         # Determine whether to use accelerate or manual device management
         self.use_accelerate = self._should_use_accelerate(use_accelerate)
@@ -436,11 +438,14 @@ class A2CTrainer:
             pbar = None
         
         for self.episode in episode_range:
+            inner_index = 0
             state, _ = self.train_env.reset()
             done = False
             
             train_reward = 0
-            while not done:
+            while not done and (inner_index < self.max_episode_length or self.max_episode_length is None):
+                inner_index += 1
+                
                 threshold = cfg.eps_end + (cfg.eps_start - cfg.eps_end) * np.exp(
                     -steps_done / cfg.eps_decay_steps
                 )
