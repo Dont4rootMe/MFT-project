@@ -1,0 +1,52 @@
+seed: 1337
+output_dir: pipelines/knn_policy/outputs
+log_level: INFO
+data:
+  currency: BTC
+  main_currency: USDT
+  exchange: Binance
+  time_frame: 1h
+  start: '2024-12-01'
+  end: null
+  timezone: UTC
+environment:
+  exchange: simulator
+  window_size: 30
+  max_episode_length: null
+  initial_cash: 10000.0
+  initial_amount: 0.0
+  renderer_formats:
+  - png
+  - html
+  renderers:
+  - matplot
+  - sharpe-matplot
+  - pnl-extrema-matplot
+  - roi-matplot
+  - drawdown-matplot
+  - pnl-matplot
+  - calmar-plotly
+  - hitratio-plotly
+  - turnover-plotly
+  reward_scheme:
+    name: simple
+  action_scheme:
+    name: managed-risk
+strategy:
+  mode: classification
+  window: 36
+  horizon: 4
+  neighbors: 5
+  metric: euclidean
+  gaussian_bandwidth: 1.0
+  time_decay: 0.99
+  beta: 1.0
+  max_weight: 1.0
+  ewma_lambda: 0.94
+  target_volatility: 0.02
+  volatility_floor: 1.0e-06
+  fee_rate: 0.001
+  slippage_rate: 0.0005
+simulation:
+  tolerance: 1.0e-06
+  warmup_steps: 36

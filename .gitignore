@@ -112,3 +112,4 @@ examples/training_logs
 
 # virtual environment
 venv
+outputs/

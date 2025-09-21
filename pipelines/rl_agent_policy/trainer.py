@@ -9,10 +9,13 @@ if str(project_root) not in sys.path:
 import pandas as pd
 import hydra
 import numpy as np
+import random
+import torch
 from omegaconf import DictConfig, OmegaConf
 from hydra.utils import instantiate, to_absolute_path
-from typing import Union
+from typing import Union, Optional
 import logging
+import copy
 
 import tensortrade.env.default as default
 from tensortrade.env.default import actions as action_api, rewards as reward_api
@@ -26,15 +29,104 @@ from gymnasium.spaces import MultiDiscrete
 
 from pipelines.rl_agent_policy.train.a2c import A2CTrainer
 
+# Try to import accelerate to detect distributed training
+try:
+    from accelerate import Accelerator
+    ACCELERATE_AVAILABLE = True
+except ImportError:
+    ACCELERATE_AVAILABLE = False
+    Accelerator = None
+
+
+def _get_process_info():
+    """Get process information for distributed training."""
+    if ACCELERATE_AVAILABLE:
+        try:
+            # Try to create accelerator to get process info
+            accelerator = Accelerator()
+            return {
+                'process_index': accelerator.process_index,
+                'num_processes': accelerator.num_processes,
+                'is_main_process': accelerator.is_main_process
+            }
+        except:
+            pass
+    
+    # Fallback to single process
+    return {
+        'process_index': 0,
+        'num_processes': 1,
+        'is_main_process': True
+    }
+
+
+def _create_process_specific_data_split(train_df, valid_df, process_index, num_processes):
+    """
+    Create process-specific data splits to ensure different episodes for each process.
+    
+    Args:
+        train_df: Training dataframe
+        valid_df: Validation dataframe  
+        process_index: Current process index
+        num_processes: Total number of processes
+        
+    Returns:
+        tuple: (process_train_df, process_valid_df)
+    """
+    if num_processes == 1:
+        return train_df, valid_df
+    
+    # Split training data across processes with offset to ensure different episodes
+    train_len = len(train_df)
+    chunk_size = train_len // num_processes
+    
+    # Create overlapping chunks with offset to ensure variety
+    start_idx = (process_index * chunk_size) % train_len
+    end_idx = ((process_index + 1) * chunk_size) % train_len
+    
+    if end_idx <= start_idx:
+        # Handle wrap-around
+        process_train_df = pd.concat([
+            train_df.iloc[start_idx:],
+            train_df.iloc[:end_idx]
+        ]).reset_index(drop=True)
+    else:
+        process_train_df = train_df.iloc[start_idx:end_idx].reset_index(drop=True)
+    
+    # For validation, use the same data but with different random seeds
+    # This ensures consistent evaluation while allowing different exploration
+    process_valid_df = valid_df.copy()
+    
+    return process_train_df, process_valid_df
+
 
 @hydra.main(config_path="../../conf", config_name="a2c_trainer", version_base=None)
 def main(cfg: DictConfig) -> None:
     """Entrypoint for training the A2C agent."""
     
+    # Get process information for distributed training
+    process_info = _get_process_info()
+    process_index = process_info['process_index']
+    num_processes = process_info['num_processes']
+    is_main_process = process_info['is_main_process']
+    
     if cfg.debug_logging:
         logging.basicConfig(level=logging.DEBUG)
     else:
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(level=logging.ERROR)  # Only show errors, suppress warnings
+        
+        # Suppress warnings from specific modules
+        logging.getLogger('root').setLevel(logging.ERROR)
+        logging.getLogger('tensortrade').setLevel(logging.ERROR)
+        logging.getLogger('matplotlib').setLevel(logging.ERROR)
+        logging.getLogger('plotly').setLevel(logging.ERROR)
+    
+    # Log process information
+    if is_main_process or num_processes == 1:
+        print(f"🚀 Process Information:")
+        print(f"   Process index: {process_index}")
+        print(f"   Total processes: {num_processes}")
+        print(f"   Is main process: {is_main_process}")
     
     # ------------------------------------------------------------------
     # Data preparation
@@ -55,8 +147,21 @@ def main(cfg: DictConfig) -> None:
     else:
         raise TypeError("validation_size must be int or float")
 
-    train_df = data.iloc[:split_idx].reset_index(drop=True)
-    valid_df = data.iloc[split_idx:].reset_index(drop=True)
+    base_train_df = data.iloc[:split_idx].reset_index(drop=True).copy()
+    base_valid_df = data.iloc[split_idx:].reset_index(drop=True).copy()
+    
+    # Create process-specific data splits for parallel training
+    train_df, valid_df = _create_process_specific_data_split(
+        base_train_df, base_valid_df, 0, 1
+    )
+    
+    if is_main_process or num_processes == 1:
+        print(f"📊 Data Split Information:")
+        print(f"   Total data points: {len(data)}")
+        print(f"   Base training data: {len(base_train_df)}")
+        print(f"   Base validation data: {len(base_valid_df)}")
+        print(f"   Process training data: {len(train_df)}")
+        print(f"   Process validation data: {len(valid_df)}")
 
     # Ensure train and validation data have identical feature dimensions
     train_features = train_df.drop(columns=["date"], errors="ignore").shape[1]
@@ -94,7 +199,7 @@ def main(cfg: DictConfig) -> None:
     # ------------------------------------------------------------------
     # Environment building
     # ------------------------------------------------------------------
-    def build_env(df: pd.DataFrame):
+    def build_env(df: pd.DataFrame, env_rng: Optional[random.Random] = None):
         
         # we do trade on close prices for previous day
         price_streams = [
@@ -133,23 +238,24 @@ def main(cfg: DictConfig) -> None:
         renderer_feed = DataFeed(renderer_streams)
         renderer_feed.compile()
 
-        action_cfg = cfg.get("action_scheme")
-        try:
-            action_scheme = action_api.create(action_cfg)
-        except TypeError:
-            params = {"cash": cash}
-            if len(asset_wallets) == 1:
-                params["asset"] = asset_wallets[0]
-            else:
-                params["assets"] = asset_wallets
-            action_scheme = action_api.create(action_cfg, **params)
+        action_scheme = action_api.get(
+            'simple',
+            portfolio=portfolio,
+            criteria=[None],
+            trade_sizes=[0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4],
+            min_order_abs=0,
+            min_order_pct=0,
+        )
+        
+        reward_scheme = reward_api.get('risk-adjusted')
 
         reward_cfg = cfg.get("reward_scheme")
         reward_scheme = reward_api.create(reward_cfg)
         
         # create renderers
         renderer_list = cfg.validation.get('renderers', 'all')
-        renderers = construct_renderers(renderer_list, display=False)
+        renderer_formats = cfg.validation.get('renderer_formats', ["png", "html"])
+        renderers = construct_renderers(renderer_list, display=False, save_formats=renderer_formats)
 
         env = default.create(
             portfolio=portfolio,
@@ -158,13 +264,33 @@ def main(cfg: DictConfig) -> None:
             feed=feed,
             renderer_feed=renderer_feed,
             window_size=cfg.env.window_size,
+            max_episode_length=cfg.env.get('max_episode_length', None),
             enable_logger=False,
-            renderer=renderers
+            renderer=renderers,
+            rng=env_rng
         )
+        
         return env
 
-    train_env = build_env(train_df)
-    valid_env = build_env(valid_df)
+    # Create process-specific environment seeds and RNG instances
+    base_seed = cfg.get('seed', 42)
+    train_env_seed = (base_seed + process_index * 2003) % (2**32)  # Different prime for env seeding
+    valid_env_seed = (base_seed + process_index * 2003 + 1009) % (2**32)  # Offset for validation
+    
+    # Create separate RNG instances for each environment
+    train_rng = random.Random(train_env_seed)
+    valid_rng = random.Random(valid_env_seed)
+    
+    train_env = build_env(train_df, train_rng)
+    valid_env = build_env(valid_df, valid_rng)
+    
+    if is_main_process or num_processes == 1:
+        print(f"🌱 Environment Configuration:")
+        print(f"   Base seed: {base_seed}")
+        print(f"   Train env seed: {train_env_seed}")
+        print(f"   Valid env seed: {valid_env_seed}")
+        print(f"   Max episode length: {cfg.env.get('max_episode_length', 'No limit')}")
+        print(f"   Window size: {cfg.env.window_size}")
 
     # ------------------------------------------------------------------
     # Agent and trainer
@@ -176,12 +302,18 @@ def main(cfg: DictConfig) -> None:
     
     agent = instantiate(cfg.model, env=train_env)
     train_config = instantiate(cfg.train.approach)
+    
+    # Set the seed in the training configuration
+    if hasattr(cfg, 'seed') and cfg.seed is not None:
+        train_config.seed = cfg.seed
+    
     trainer = A2CTrainer(
         agent=agent, 
         train_env=train_env, 
         valid_env=valid_env, 
         output_dir=output_dir, 
         config=train_config,
+        max_episode_length=cfg.env.get('max_episode_length', None),
         use_accelerate=use_accelerate
     )
     trainer.train()
@@ -189,7 +321,7 @@ def main(cfg: DictConfig) -> None:
     # ------------------------------------------------------------------
     # Final evaluation and result handling
     # ------------------------------------------------------------------
-    state, _ = valid_env.reset(start_from_time=True)
+    state, _ = valid_env.reset(begin_from_start=True)
     done = False
     total_reward = 0.0
     while not done:

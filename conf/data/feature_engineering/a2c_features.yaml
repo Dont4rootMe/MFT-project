@@ -6,7 +6,11 @@ enabled: true
 technical_indicators:
   enabled: true
   strategies:
-    - "all"  # Generate all available technical indicators
+    - "candles"
+    - "momentum"
+    - "trend"
+    - "performance"
+    # - "all"  # Generate all available technical indicators
     # Alternative: specify specific strategies like ["momentum", "overlap", "volatility"]
   exclude:
     - "cdl"  # Exclude candlestick patterns (can be noisy)
@@ -15,7 +19,7 @@ technical_indicators:
 # Custom Features Configuration
 custom_features:
   enabled: true
-  lookback_periods: [5, 10, 20, 50]  # Periods for rolling calculations
+  lookback_periods: [10, 25, 50]  # Periods for rolling calculations
   price_features:
     - "moving_averages"          # Simple moving averages
     - "exponential_moving_averages"  # Exponential moving averages
@@ -25,8 +29,7 @@ custom_features:
 
 # Quantstats Features Configuration (optional, can be resource intensive)
 quantstats_features:
-  enabled: false  
+  enabled: true  
   categories:
     - "risk"
     - "returns"
-    - "volatility"

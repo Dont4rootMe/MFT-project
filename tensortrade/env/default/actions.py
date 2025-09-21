@@ -136,17 +136,18 @@ class BSH(TensorTradeActionScheme):
 
     registered_name = "bsh"
 
-    def __init__(self, cash: 'Wallet', asset: 'Wallet'):
+    def __init__(self, cash: 'Wallet', asset: 'Wallet', proportion: float = 1.0):
         super().__init__()
         self.cash = cash
         self.asset = asset
+        self.proportion = proportion
 
         self.listeners = []
         self.action = 0
 
     @property
     def action_space(self):
-        return Discrete(2)
+        return Discrete(3)
 
     def attach(self, listener):
         self.listeners += [listener]
@@ -154,25 +155,28 @@ class BSH(TensorTradeActionScheme):
 
     def get_orders(self, action: int, portfolio: 'Portfolio') -> 'Order':
         order = None
-
-        if abs(action - self.action) > 0:
-            src = self.cash if self.action == 0 else self.asset
-            tgt = self.asset if self.action == 0 else self.cash
-
-            if src.balance == 0:  # We need to check, regardless of the proposed order, if we have balance in 'src'
-                return []  # Otherwise just return an empty order list
-
-            order = proportion_order(portfolio, src, tgt, 1.0)
-            self.action = action
-
+        
+        if action == 1: 
+            src = self.cash
+            tgt = self.asset
+        elif action == -1:
+            src = self.asset
+            tgt = self.cash
+        else:
+            return []
+        
+        if src.balance == 0:
+            return []
+        
+        order = proportion_order(portfolio, src, tgt, self.proportion)
+        
         for listener in self.listeners:
             listener.on_action(action)
-
+        
         return [order]
 
     def reset(self):
         super().reset()
-        self.action = 0
 
 
 class MultiBSH(TensorTradeActionScheme):
@@ -243,6 +247,7 @@ class SimpleOrders(TensorTradeActionScheme):
     """
 
     def __init__(self,
+                 portfolio: 'Portfolio',
                  criteria: 'Union[List[OrderCriteria], OrderCriteria]' = None,
                  trade_sizes: 'Union[List[float], int]' = 10,
                  durations: 'Union[List[int], int]' = None,
@@ -251,6 +256,7 @@ class SimpleOrders(TensorTradeActionScheme):
                  min_order_pct: float = 0.02,
                  min_order_abs: float = 0.00) -> None:
         super().__init__()
+        self.portfolio = portfolio
         self.min_order_pct = min_order_pct
         self.min_order_abs = min_order_abs
         criteria = self.default('criteria', criteria)
@@ -290,6 +296,9 @@ class SimpleOrders(TensorTradeActionScheme):
     def get_orders(self,
                    action: int,
                    portfolio: 'Portfolio') -> 'List[Order]':
+
+        if portfolio is None:
+            portfolio = self.portfolio
 
         if action == 0:
             return []
@@ -355,6 +364,7 @@ class ManagedRiskOrders(TensorTradeActionScheme):
     """
 
     def __init__(self,
+                 portfolio: 'Portfolio',
                  stop: 'List[float]' = [0.02, 0.04, 0.06],
                  take: 'List[float]' = [0.01, 0.02, 0.03],
                  trade_sizes: 'Union[List[float], int]' = 10,
@@ -364,6 +374,7 @@ class ManagedRiskOrders(TensorTradeActionScheme):
                  min_order_pct: float = 0.02,
                  min_order_abs: float = 0.00) -> None:
         super().__init__()
+        self.portfolio = portfolio
         self.min_order_pct = min_order_pct
         self.min_order_abs = min_order_abs
         self.stop = self.default('stop', stop)
@@ -402,6 +413,8 @@ class ManagedRiskOrders(TensorTradeActionScheme):
         return self._action_space
 
     def get_orders(self, action: int, portfolio: 'Portfolio') -> 'List[Order]':
+        if portfolio is None:
+            portfolio = self.portfolio
 
         if action == 0:
             return []
