@@ -503,7 +503,7 @@ class PlotlyTradingChart(BaseRenderer):
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
-                y=1.02,
+                y=-0.36,
                 xanchor="right",
                 x=1
             ),
@@ -1775,7 +1775,7 @@ class PnLExtremaPlotlyRenderer(BaseRenderer):
                              "• Helps assess peak performance and maximum risk exposure",
                         showarrow=False,
                         xref="paper", yref="paper",
-                        x=0.5, y=-0.22, xanchor='center', yanchor='bottom',
+                        x=0.5, y=-0.36, xanchor='center', yanchor='bottom',
                         font=dict(size=11, color="darkblue"),
                         bgcolor="rgba(255,255,255,0.8)",
                         bordercolor="lightgray",
