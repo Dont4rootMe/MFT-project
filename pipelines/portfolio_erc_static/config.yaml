@@ -5,7 +5,7 @@ data:
   exchange: Binance
   main_currency: USDT
   time_frame: 1d
-  symbols: [BTC, ETH, BNB, ADA, SOL, XRP]
+  symbols: [LINK, SOL, XRP, BNB, ADA, DOT]
   start_date: "2020-01-01"
   end_date: "2023-12-31"
   validation_duration_days: 365
@@ -15,7 +15,7 @@ portfolio:
   commission_buy: 0.0010
   commission_sell: 0.0010
   slippage_bps: 5.0
-  warm_start_days: 60
+  warm_start_days: 100
   rebalance_period_days: 14
   enable_online_rebalance: true
   delta: 0.01
