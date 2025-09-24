@@ -52,9 +52,9 @@ def execute_buy_order(order: 'Order',
     # than the instrument precision, otherwise the minimum precision value is used.
     minimum_commission = Decimal(10) ** -filled.instrument.precision
     if options.commission > 0 and commission < minimum_commission:
-        logging.warning("Commission is > 0 but less than instrument precision. "
-                        "Setting commission to the minimum allowed amount. "
-                        "Consider defining a custom instrument with a higher precision.")
+        # logging.warning("Commission is > 0 but less than instrument precision. "
+        #                 "Setting commission to the minimum allowed amount. "
+        #                 "Consider defining a custom instrument with a higher precision.")
         commission.size = minimum_commission
 
     quantity = filled - commission
