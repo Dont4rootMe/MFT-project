@@ -32,7 +32,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from tensortrade.agents import Agent
-from pipelines.a2c_agent.models import CNNBackbone, ActorHead, CriticHead
+from pipelines.rl_agent_policy.models import CNNBackbone, ActorHead, CriticHead
 
 A2CTransition = namedtuple(
     "A2CTransition", ["state", "action", "reward", "done", "value"]
@@ -63,7 +63,15 @@ class A2CAgent(Agent):
     ):
         super().__init__()
         self.env = env
-        self.n_actions = env.action_space.n
+        action_space = env.action_space
+        if hasattr(action_space, "n"):
+            self.n_actions = action_space.n
+            self._action_nvec = None
+        elif hasattr(action_space, "nvec"):
+            self.n_actions = int(np.prod(action_space.nvec))
+            self._action_nvec = action_space.nvec
+        else:
+            raise AttributeError("Unsupported action space type")
         # Convert TF style (L, C) to PyTorch (C, L) for Conv1d.
         self.observation_shape = (
             env.observation_space.shape[1],
@@ -152,4 +160,15 @@ class A2CAgent(Agent):
         return dist.sample().item()
 
     # Training utilities removed. Training is now handled by dedicated
-    # trainer classes located under ``pipelines.a2c_agent.train``.
+    # trainer classes located under ``pipelines.rl_agent_policy.train``.
+
+    def train(self, *args, **kwargs):
+        """Stub to satisfy abstract base class requirements.
+
+        Training is managed externally via the pipeline trainers under
+        ``pipelines.rl_agent_policy.train``. Calling this method directly will
+        raise ``NotImplementedError``.
+        """
+        raise NotImplementedError(
+            "Use A2CTrainer or other trainer classes for optimization."
+        )

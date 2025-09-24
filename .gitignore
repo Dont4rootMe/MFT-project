@@ -13,6 +13,7 @@ __pycache__/
 *.sqlite3
 *.db
 *.csv
+!tests/data/input/*.csv
 *.tsv
 *.zip
 *.tar.gz
@@ -111,3 +112,4 @@ examples/training_logs
 
 # virtual environment
 venv
+outputs/

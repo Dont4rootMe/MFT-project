@@ -1,0 +1,55 @@
+seed: 1337
+
+output_dir: pipelines/knn_policy/outputs
+
+log_level: INFO
+
+
+data:
+  currency: "LINK"
+  main_currency: "USDT"
+  exchange: "Binance"
+  time_frame: "1d"
+  start: "2024-12-01"
+  end: null
+  timezone: "UTC"
+
+environment:
+  exchange: "simulator"
+  window_size: 30
+  max_episode_length: null
+  initial_cash: 10000.0
+  initial_amount: 250.0
+  renderer_formats:
+    - png
+    - html
+  renderers:
+    - plotly
+    - sharpe-plotly
+    - pnl-extrema-plotly
+    - roi-plotly
+    - drawdown-plotly
+    - pnl-plotly
+    - calmar-plotly
+    - hitratio-plotly
+    - turnover-plotly
+
+strategy:
+  mode: "classification"
+  window: 36
+  horizon: 4
+  neighbors: 5
+  metric: "euclidean"
+  gaussian_bandwidth: 1.0
+  time_decay: 0.99
+  beta: 1.0
+  max_weight: 1.0
+  ewma_lambda: 0.94
+  target_volatility: 0.02
+  volatility_floor: 1.0e-06
+  fee_rate: 0.01
+  slippage_rate: 0.0005
+
+simulation:
+  tolerance: 1.0e-06
+  warmup_steps: 36

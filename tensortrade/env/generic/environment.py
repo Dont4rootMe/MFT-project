@@ -15,8 +15,9 @@
 import uuid
 import logging
 
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 from random import randint
+import random
 
 import gymnasium
 import numpy as np
@@ -67,7 +68,8 @@ class TradingEnv(gymnasium.Env, TimeIndexed):
                  renderer: Renderer,
                  min_periods: int = None,
                  max_episode_steps: int = None,
-                 random_start_pct: float = 0.00,
+                 max_episode_length: Optional[int] = None,
+                 rng: Optional[random.Random] = None,
                  **kwargs) -> None:
         super().__init__()
         self.clock = Clock()
@@ -79,7 +81,10 @@ class TradingEnv(gymnasium.Env, TimeIndexed):
         self.informer = informer
         self.renderer = renderer
         self.min_periods = min_periods
-        self.random_start_pct = random_start_pct
+        self.max_episode_length = max_episode_length
+        
+        # Initialize random number generator
+        self.rng = rng if rng is not None else random.Random()
 
         for c in self.components.values():
             c.clock = self.clock
@@ -142,19 +147,38 @@ class TradingEnv(gymnasium.Env, TimeIndexed):
 
         return obs, reward, terminated, truncated, info
 
-    def reset(self,seed = None, options = None, start_from_time = False) -> tuple["np.array", dict[str, Any]]:
+    def reset(self, seed = None, begin_from_start = False) -> tuple["np.array", dict[str, Any]]:
         """Resets the environment.
+
+        Parameters
+        ----------
+        seed : int, optional
+            Seed for the random number generator. If provided, it will seed the environment's RNG.
+        begin_from_start : bool, optional
+            Whether to start from the beginning of the time series (default: False).
 
         Returns
         -------
         obs : `np.array`
             The first observation of the environment.
+        info : dict
+            Additional information from the environment.
         """
-        if start_from_time or self.random_start_pct <= 0.00:
+        # Set the seed if provided
+        if seed is not None:
+            self.rng.seed(seed)
+        
+        if begin_from_start or self.max_episode_length is None:
             random_start = 0
         else:
             size = len(self.observer.feed.process[-1].inputs[0].iterable)
-            random_start = randint(0, int(size * self.random_start_pct))
+            
+            # Calculate the valid range for episode start considering max_episode_length
+            # Ensure episode can fit within data: start from [0, size - max_episode_length - 1]
+            max_start_idx = max(0, size - self.max_episode_length - 1)
+            
+            # Use the environment's RNG instead of global randint
+            random_start = self.rng.randint(0, max_start_idx) if max_start_idx > 0 else 0
 
         self.episode_id = str(uuid.uuid4())
         self.clock.reset()
@@ -173,13 +197,40 @@ class TradingEnv(gymnasium.Env, TimeIndexed):
 
         return obs, info
 
+    def seed(self, seed: Optional[int] = None) -> list:
+        """Seed the environment's random number generator.
+        
+        Parameters
+        ----------
+        seed : int, optional
+            The seed to use for the random number generator.
+            
+        Returns
+        -------
+        list
+            List containing the seed used.
+        """
+        if seed is not None:
+            self.rng.seed(seed)
+        return [seed]
+    
+    def get_price_history(self) -> np.array:
+        return self.observer.renderer_history
+
+    def get_order_history(self) -> list[dict]:
+        """Gets the order history."""
+        return self.action_scheme.broker.trades
+    
+    def get_pnl_history(self) -> np.array:
+        return self.action_scheme.portfolio.performance['net_worth']
+
     def render(self, **kwargs) -> None:
         """Renders the environment."""
         self.renderer.render(self, **kwargs)
 
-    def save(self) -> None:
+    def save(self, root_path: str | None = None) -> None:
         """Saves the rendered view of the environment."""
-        self.renderer.save()
+        self.renderer.save(root_path)
 
     def close(self) -> None:
         """Closes the environment."""

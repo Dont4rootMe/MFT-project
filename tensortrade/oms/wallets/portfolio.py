@@ -301,11 +301,26 @@ class Portfolio(Component, TimedIdentifiable):
 
         index = self.clock.step
         performance_data = {k: data[k] for k in self._keys}
-        performance_data['base_symbol'] = self.base_instrument.symbol
+        
+        # Compute PnL (absolute) and PPL (percent PnL) from net worth.
+        # Definitions:
+        #   pnl_t  = net_worth_t - net_worth_0
+        #   ppl_t  = (net_worth_t / net_worth_0) - 1       (fraction; multiply by 100 for % if needed)
+        # These are added to performance so downstream renderers don't need to reconstruct them.
+        net_worth = data['net_worth']
+        if self._initial_net_worth is None:
+            # First observation; initialize and set zero deltas.
+            pnl = 0.0
+            ppl = 0.0
+        else:
+            pnl = float(net_worth) - float(self._initial_net_worth)
+            base = float(self._initial_net_worth)
+            ppl = (float(net_worth) / base - 1.0) if base != 0.0 else 0.0
+        performance_data['pnl'] = pnl
+        performance_data['ppl'] = ppl
+        
         performance_step = OrderedDict()
         performance_step[index] = performance_data
-
-        net_worth = data['net_worth']
 
         if self._performance is None:
             self._performance = performance_step

@@ -1,0 +1,123 @@
+# =============================================================================
+# QUANTSTATS CATEGORIES USAGE EXAMPLES
+# =============================================================================
+# This file shows different ways to configure quantstats features using the
+# new categories functionality, similar to technical indicators
+# =============================================================================
+
+# Example 1: Conservative Risk Assessment Configuration
+# Use only risk-related metrics for conservative portfolio analysis
+quantstats_features_conservative:
+  enabled: true
+  categories:
+    - "risk"        # Only risk metrics
+    - "drawdown"    # Drawdown analysis
+  exclude:
+    - "max_drawdown"  # Exclude computationally expensive features
+    - "var"           # Exclude VaR calculation
+
+# Example 2: Performance Analysis Configuration  
+# Focus on trading performance and return metrics
+quantstats_features_performance:
+  enabled: true
+  categories:
+    - "performance"   # Trading performance metrics
+    - "returns"       # Return-based metrics
+  exclude:
+    - "omega"         # Exclude complex ratios
+    - "tail_ratio"    # Exclude tail analysis
+
+# Example 3: Volatility-focused Configuration
+# For volatility-based trading strategies
+quantstats_features_volatility:
+  enabled: true
+  categories:
+    - "volatility"    # Volatility metrics only
+    - "distribution"  # Statistical distribution
+  exclude:
+    - "outliers"      # Exclude outlier detection
+
+# Example 4: Comprehensive Analysis Configuration
+# Use all categories but exclude computationally expensive features
+quantstats_features_comprehensive:
+  enabled: true
+  categories:
+    - "all"  # All available features
+  exclude:
+    - "max_drawdown"        # Computationally expensive
+    - "drawdown_details"    # Complex analysis
+    - "to_drawdown_series"  # Series conversion
+    - "omega"               # Complex probability calculations
+    - "risk_of_ruin"        # Monte Carlo based
+
+# Example 5: Statistical Analysis Configuration
+# Focus on statistical properties of returns
+quantstats_features_statistical:
+  enabled: true
+  categories:
+    - "distribution"  # Statistical distribution metrics
+    - "returns"       # Return characteristics
+  exclude:
+    - "kelly"         # Exclude Kelly criterion
+    - "kurtosis"      # Exclude higher-order moments
+
+# Example 6: Risk Management Configuration
+# Comprehensive risk assessment for institutional use
+quantstats_features_risk_management:
+  enabled: true
+  categories:
+    - "risk"          # Risk metrics
+    - "drawdown"      # Drawdown analysis  
+    - "volatility"    # Volatility assessment
+  exclude:
+    - "serenity_index"    # Exclude proprietary metrics
+    - "ulcer_index"       # Exclude specialized indices
+
+# =============================================================================
+# USAGE EXAMPLES IN MAIN CONFIGURATION
+# =============================================================================
+
+# To use any of these configurations, you can:
+# 1. Copy the desired configuration to your main feature engineering config
+# 2. Reference it in your data configuration
+# 3. Override it at runtime
+
+# Example runtime override:
+# python main.py quantstats_features.categories=[risk,performance] quantstats_features.exclude=[max_drawdown]
+
+# Example in feature engineering config:
+# quantstats_features: ${quantstats_features_conservative}
+
+# =============================================================================
+# CATEGORY COMBINATIONS AND USE CASES
+# =============================================================================
+
+# High-Frequency Trading (HFT):
+# categories: ["performance", "volatility"]
+# exclude: ["max_drawdown", "drawdown_details", "avg_drawdown_days"]
+# Rationale: Focus on short-term performance and volatility, exclude long-term metrics
+
+# Long-Term Investment:
+# categories: ["risk", "returns", "drawdown"]  
+# exclude: ["win_rate", "avg_win", "avg_loss"]
+# Rationale: Focus on risk-adjusted returns and drawdown, exclude trade-level metrics
+
+# Algorithmic Trading:
+# categories: ["performance", "distribution"]
+# exclude: ["outliers", "risk_of_ruin"]
+# Rationale: Focus on systematic performance and statistical properties
+
+# Risk Management:
+# categories: ["risk", "drawdown", "volatility"]
+# exclude: ["profit_factor", "payoff_ratio"]
+# Rationale: Comprehensive risk assessment, exclude profit-focused metrics
+
+# Strategy Comparison:
+# categories: ["returns", "performance"]
+# exclude: ["cpc_index", "common_sense_ratio"]
+# Rationale: Focus on comparable metrics across strategies
+
+# Portfolio Optimization:
+# categories: ["risk", "returns", "volatility"]
+# exclude: ["win_rate", "avg_win", "avg_loss", "profit_factor"]
+# Rationale: Focus on portfolio-level metrics, exclude trade-level statistics

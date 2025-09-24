@@ -1,0 +1,16 @@
+defaults:
+  - feature_engineering: a2c_features
+  - feature_selection: a2c_selection
+
+_target_: pipelines.rl_agent_policy.data.data_parser.DataHandler
+
+symbols: [LINK]
+time_freq: "1d"
+exchange: "Binance"
+main_currency: "USDT"
+
+cache:
+  enabled: false
+  dir: cache
+  checkpoint_name: null
+

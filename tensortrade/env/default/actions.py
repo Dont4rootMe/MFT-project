@@ -3,7 +3,9 @@ from abc import abstractmethod
 from itertools import product
 from typing import Union, List, Any
 
-from gymnasium.spaces import Space, Discrete
+from gymnasium.spaces import Space, Discrete, MultiDiscrete
+from hydra.utils import instantiate
+from omegaconf import DictConfig
 
 from tensortrade.core import Clock
 from tensortrade.env.generic import ActionScheme, TradingEnv
@@ -90,10 +92,11 @@ class TensorTradeActionScheme(ActionScheme):
 
         for order in orders:
             if order:
-                logging.info('Step {}: {} {}'.format(order.step, order.side, order.quantity))
+                logging.debug('Step {}: {} {}'.format(order.step, order.side, order.quantity))
                 self.broker.submit(order)
 
-        self.broker.update()
+        executed_orders = self.broker.update()
+        return executed_orders
 
     @abstractmethod
     def get_orders(self, action: Any, portfolio: 'Portfolio') -> 'List[Order]':
@@ -133,17 +136,18 @@ class BSH(TensorTradeActionScheme):
 
     registered_name = "bsh"
 
-    def __init__(self, cash: 'Wallet', asset: 'Wallet'):
+    def __init__(self, cash: 'Wallet', asset: 'Wallet', proportion: float = 1.0):
         super().__init__()
         self.cash = cash
         self.asset = asset
+        self.proportion = proportion
 
         self.listeners = []
         self.action = 0
 
     @property
     def action_space(self):
-        return Discrete(2)
+        return Discrete(3)
 
     def attach(self, listener):
         self.listeners += [listener]
@@ -151,25 +155,70 @@ class BSH(TensorTradeActionScheme):
 
     def get_orders(self, action: int, portfolio: 'Portfolio') -> 'Order':
         order = None
-
-        if abs(action - self.action) > 0:
-            src = self.cash if self.action == 0 else self.asset
-            tgt = self.asset if self.action == 0 else self.cash
-
-            if src.balance == 0:  # We need to check, regardless of the proposed order, if we have balance in 'src'
-                return []  # Otherwise just return an empty order list
-
-            order = proportion_order(portfolio, src, tgt, 1.0)
-            self.action = action
-
+        
+        if action == 1: 
+            src = self.cash
+            tgt = self.asset
+        elif action == -1:
+            src = self.asset
+            tgt = self.cash
+        else:
+            return []
+        
+        if src.balance == 0:
+            return []
+        
+        order = proportion_order(portfolio, src, tgt, self.proportion)
+        
         for listener in self.listeners:
             listener.on_action(action)
-
+        
         return [order]
 
     def reset(self):
         super().reset()
-        self.action = 0
+
+
+class MultiBSH(TensorTradeActionScheme):
+    """A simple multi-asset extension of the BSH action scheme.
+
+    Each asset wallet toggles between holding base currency and the asset
+    whenever its corresponding action switches between 0 and 1.
+    """
+
+    def __init__(self, cash: 'Wallet', assets: List['Wallet']):
+        super().__init__()
+        self.cash = cash
+        self.assets = assets
+        self.action = [0] * len(assets)
+        self.listeners: List = []
+
+    @property
+    def action_space(self):
+        return MultiDiscrete([2] * len(self.assets))
+
+    def attach(self, listener):
+        self.listeners += [listener]
+        return self
+
+    def get_orders(self, actions, portfolio: 'Portfolio'):
+        orders = []
+        for i, a in enumerate(actions):
+            if abs(a - self.action[i]) > 0:
+                src = self.cash if self.action[i] == 0 else self.assets[i]
+                tgt = self.assets[i] if self.action[i] == 0 else self.cash
+                if src.balance == 0:
+                    self.action[i] = a
+                    continue
+                orders.append(proportion_order(portfolio, src, tgt, 1.0))
+                self.action[i] = a
+        for listener in self.listeners:
+            listener.on_action(actions)
+        return orders
+
+    def reset(self):
+        super().reset()
+        self.action = [0] * len(self.assets)
 
 
 class SimpleOrders(TensorTradeActionScheme):
@@ -198,6 +247,7 @@ class SimpleOrders(TensorTradeActionScheme):
     """
 
     def __init__(self,
+                 portfolio: 'Portfolio',
                  criteria: 'Union[List[OrderCriteria], OrderCriteria]' = None,
                  trade_sizes: 'Union[List[float], int]' = 10,
                  durations: 'Union[List[int], int]' = None,
@@ -206,6 +256,7 @@ class SimpleOrders(TensorTradeActionScheme):
                  min_order_pct: float = 0.02,
                  min_order_abs: float = 0.00) -> None:
         super().__init__()
+        self.portfolio = portfolio
         self.min_order_pct = min_order_pct
         self.min_order_abs = min_order_abs
         criteria = self.default('criteria', criteria)
@@ -245,6 +296,9 @@ class SimpleOrders(TensorTradeActionScheme):
     def get_orders(self,
                    action: int,
                    portfolio: 'Portfolio') -> 'List[Order]':
+
+        if portfolio is None:
+            portfolio = self.portfolio
 
         if action == 0:
             return []
@@ -310,6 +364,7 @@ class ManagedRiskOrders(TensorTradeActionScheme):
     """
 
     def __init__(self,
+                 portfolio: 'Portfolio',
                  stop: 'List[float]' = [0.02, 0.04, 0.06],
                  take: 'List[float]' = [0.01, 0.02, 0.03],
                  trade_sizes: 'Union[List[float], int]' = 10,
@@ -319,6 +374,7 @@ class ManagedRiskOrders(TensorTradeActionScheme):
                  min_order_pct: float = 0.02,
                  min_order_abs: float = 0.00) -> None:
         super().__init__()
+        self.portfolio = portfolio
         self.min_order_pct = min_order_pct
         self.min_order_abs = min_order_abs
         self.stop = self.default('stop', stop)
@@ -357,6 +413,8 @@ class ManagedRiskOrders(TensorTradeActionScheme):
         return self._action_space
 
     def get_orders(self, action: int, portfolio: 'Portfolio') -> 'List[Order]':
+        if portfolio is None:
+            portfolio = self.portfolio
 
         if action == 0:
             return []
@@ -399,30 +457,60 @@ class ManagedRiskOrders(TensorTradeActionScheme):
 
 
 _registry = {
-    'bsh': BSH,
-    'simple': SimpleOrders,
-    'managed-risk': ManagedRiskOrders,
+    "bsh": BSH,
+    "multi_bsh": MultiBSH,
+    "simple": SimpleOrders,
+    "managed-risk": ManagedRiskOrders,
 }
 
 
-def get(identifier: str) -> 'ActionScheme':
-    """Gets the `ActionScheme` that matches with the identifier.
+def create(config: Union[str, DictConfig, dict, None], **kwargs) -> TensorTradeActionScheme:
+    """Create an action scheme from a configuration.
 
     Parameters
     ----------
-    identifier : str
-        The identifier for the `ActionScheme`.
-
-    Returns
-    -------
-    'ActionScheme'
-        The action scheme associated with the `identifier`.
-
-    Raises
-    ------
-    KeyError:
-        Raised if the `identifier` is not associated with any `ActionScheme`.
+    config : Union[str, DictConfig, dict, None]
+        Either a string identifier, a dictionary with ``name`` and parameters,
+        a Hydra style config with ``_target_``, or ``None`` for defaults.
+    **kwargs : dict
+        Additional parameters forwarded to the action scheme constructor.
     """
-    if identifier not in _registry.keys():
+
+    if config is None:
+        if "assets" in kwargs and kwargs.get("assets") and len(kwargs["assets"]) > 1:
+            return MultiBSH(**kwargs)
+        return BSH(**kwargs)
+
+    if isinstance(config, str):
+        cls = _registry.get(config.lower())
+        if not cls:
+            raise KeyError(f"Unknown action scheme '{config}'")
+        return cls(**kwargs)
+
+    if isinstance(config, DictConfig):
+        if "_target_" in config:
+            return instantiate(config, **kwargs)
+        config = dict(config)
+
+    if isinstance(config, dict):
+        if "_target_" in config:
+            return instantiate(config, **kwargs)
+        name = config.get("name")
+        params = {k: v for k, v in config.items() if k != "name"}
+        params.update(kwargs)
+        if name:
+            cls = _registry.get(name.lower())
+            if not cls:
+                raise KeyError(f"Unknown action scheme '{name}'")
+            return cls(**params)
+        raise KeyError("Action scheme configuration must include 'name' or '_target_'")
+
+    raise TypeError("Unsupported action scheme configuration type")
+
+
+def get(identifier: str, **kwargs) -> TensorTradeActionScheme:
+    """Backward compatible registry lookup."""
+    cls = _registry.get(identifier)
+    if not cls:
         raise KeyError(f"Identifier {identifier} is not associated with any `ActionScheme`.")
-    return _registry[identifier]()
+    return cls(**kwargs)

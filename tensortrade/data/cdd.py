@@ -74,10 +74,24 @@ class CryptoDataDownload:
         df = df.drop(columns=["symbol"])
         df = df.rename({base_vc: new_base_vc, quote_vc: new_quote_vc, "date": "date"}, axis=1)
 
-        df["unix"] = df["unix"].astype(int)
-        df["unix"] = df["unix"].apply(
-            lambda x: int(x / 1000) if len(str(x)) == 13 else x
-        )
+        # Normalize unix timestamps that may be provided in milliseconds or
+        # microseconds. CryptoDataDownload mixes timestamp precisions across
+        # different symbols/timeframes, so we coerce the column to numeric and
+        # scale values greater than 10 digits down to seconds.
+        df["unix"] = pd.to_numeric(df["unix"], errors="coerce")
+        df.dropna(subset=["unix"], inplace=True)
+
+        def _normalize_unix(x: int) -> int:
+            x = int(x)
+            digits = len(str(abs(x)))
+            # 10-digit numbers represent seconds. Larger values are assumed to be
+            # millisecond (13 digits), microsecond (16 digits), or nanosecond
+            # precision and are scaled down accordingly.
+            if digits > 10:
+                x = int(x / (10 ** (digits - 10)))
+            return x
+
+        df["unix"] = df["unix"].apply(_normalize_unix)
         df["date"] = pd.to_datetime(df["unix"], unit="s")
         df = df.set_index("date")
         df.columns = [name.lower() for name in df.columns]
