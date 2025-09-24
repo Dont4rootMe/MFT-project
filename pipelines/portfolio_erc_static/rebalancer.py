@@ -41,7 +41,7 @@ class ExecutionConfig:
 class TradeInstruction:
     symbol: str
     side: TradeSide
-    amount: float  # For BUY: base currency notional. For SELL: asset quantity.
+    amount: float  # Trade quantity in units of the asset.
     price: float
 
 
@@ -137,7 +137,7 @@ class PortfolioRebalancer:
         scale = 1.0
         if total_buy_cost > available_cash > 0:
             scale = available_cash / total_buy_cost
-            LOGGER.info("Scaling buy orders by %.4f to respect budget", scale)
+            # LOGGER.info("Scaling buy orders by %.4f to respect budget", scale)
 
         instructions: List[TradeInstruction] = []
 
@@ -180,8 +180,7 @@ class PortfolioRebalancer:
                 )
 
             remaining_cash = max(0.0, remaining_cash - gross_cost)
-            cash_needed = scaled_qty * price
-            instructions.append(TradeInstruction(sym, TradeSide.BUY, cash_needed, price))
+            instructions.append(TradeInstruction(sym, TradeSide.BUY, scaled_qty, price))
 
         return instructions
 
