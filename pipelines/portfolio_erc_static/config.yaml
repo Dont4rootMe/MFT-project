@@ -19,7 +19,7 @@ portfolio:
   warm_start_days: 100
   rebalance_period_days: 14
   enable_online_rebalance: true
-  delta: 0.01
+  delta: 0.001
   lot_size:
     default: 0.0001
   tick_size:

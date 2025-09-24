@@ -137,7 +137,7 @@ class PortfolioRebalancer:
         scale = 1.0
         if total_buy_cost > available_cash > 0:
             scale = available_cash / total_buy_cost
-            LOGGER.info("Scaling buy orders by %.4f to respect budget", scale)
+            # LOGGER.info("Scaling buy orders by %.4f to respect budget", scale)
 
         instructions: List[TradeInstruction] = []
 
