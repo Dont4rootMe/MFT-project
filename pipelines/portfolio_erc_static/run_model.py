@@ -182,6 +182,35 @@ def create_orders_for_pending_target(
 
 
 # ---------------------------------------------------------------------------
+# Environment helpers
+# ---------------------------------------------------------------------------
+
+def interpret_step_output(step_result) -> Tuple[np.ndarray, float, bool, bool, Dict]:
+    """Normalise environment.step outputs across Gym/Gymnasium variants."""
+
+    if not isinstance(step_result, tuple):
+        raise TypeError(
+            "TradingEnv.step is expected to return a tuple of results, "
+            f"received {type(step_result)!r}"
+        )
+
+    length = len(step_result)
+    if length == 5:
+        state, reward, terminated, truncated, info = step_result
+        return state, float(reward), bool(terminated), bool(truncated), info
+    if length == 4:
+        state, reward, done, info = step_result
+        terminated = bool(done)
+        truncated = False
+        return state, float(reward), terminated, truncated, info
+
+    raise ValueError(
+        "TradingEnv.step returned an unexpected number of values "
+        f"({length}); expected 4 or 5"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Backtest execution
 # ---------------------------------------------------------------------------
 
@@ -310,14 +339,15 @@ def run_backtest(config: Dict) -> None:
         else:
             action_scheme.clear()
 
-        state, reward, terminated, truncated, _ = env.step(
-            0, skip_decision=not bool(orders_today)
+        step_state, reward, terminated, truncated, _ = interpret_step_output(
+            env.step(0, skip_decision=not bool(orders_today))
         )
-        done = terminated or truncated
+        state = step_state
+        done = bool(terminated or truncated)
 
         current_weights = get_portfolio_weights(portfolio, symbols, current_prices)
 
-        if scheduler.should_rebalance(step_index):
+        if not done and scheduler.should_rebalance(step_index):
             window_returns = returns.loc[:current_date].tail(estimator.config.window)
             try:
                 cov_matrix, shrinkage = estimator.estimate(window_returns)

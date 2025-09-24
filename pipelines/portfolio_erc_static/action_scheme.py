@@ -50,18 +50,35 @@ class ScheduledOrdersActionScheme(TensorTradeActionScheme):
                 continue
             price = float(instr.price)
             if instr.side == TradeSide.SELL:
-                order = market_order(TradeSide.SELL, pair, price, instr.amount, self.portfolio)
+                asset_wallet = self.portfolio.get_wallet(
+                    pair.exchange.id, pair.pair.base
+                )
+                available_qty = float(asset_wallet.balance.as_float())
+                quantity = min(instr.amount, available_qty)
+                if quantity <= 0:
+                    continue
+                order = market_order(
+                    TradeSide.SELL, pair, price, quantity, self.portfolio
+                )
                 order.price = Decimal(str(price))
                 self.broker.submit(order)
                 result = self.broker.update()
                 if result:
                     executed.extend(result)
             else:
-                available = float(self._cash_wallet.balance.as_float())
-                spend = min(instr.amount, available)
-                if spend <= 0:
+                cash_wallet = self._cash_wallet
+                available_cash = float(cash_wallet.balance.as_float())
+                if price <= 0:
+                    LOGGER.warning("Non-positive price for %s", instr.symbol)
                     continue
-                order = market_order(TradeSide.BUY, pair, price, spend, self.portfolio)
+                max_affordable = available_cash / price if price > 0 else 0.0
+                quantity = min(instr.amount, max_affordable)
+                if quantity <= 0:
+                    continue
+                notional = quantity * price
+                order = market_order(
+                    TradeSide.BUY, pair, price, notional, self.portfolio
+                )
                 order.price = Decimal(str(price))
                 self.broker.submit(order)
                 result = self.broker.update()
