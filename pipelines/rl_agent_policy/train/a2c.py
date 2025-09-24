@@ -503,7 +503,7 @@ class A2CTrainer:
         
         self._save_checkpoint(steps_done, self.episode)
 
-    def _validate(self):
+    def _validate(self, save_validation_output: bool = True):
         # create output directory for current validation run
         validation_output_dir = self.valid_output_dir / f"step_{self.episode}"
         validation_output_dir.mkdir(parents=True, exist_ok=True)
@@ -525,6 +525,7 @@ class A2CTrainer:
         
         # render and save information on the run
         self.valid_env.render()
-        self.valid_env.save(validation_output_dir)
+        if save_validation_output:
+            self.valid_env.save(validation_output_dir)
 
         return total_reward

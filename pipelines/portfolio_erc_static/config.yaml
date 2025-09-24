@@ -1,0 +1,54 @@
+log_level: INFO
+seed: 42
+
+data:
+  exchange: Binance
+  main_currency: USDT
+  time_frame: 1d
+  symbols: [LINK, SOL, XRP, BNB, ADA, DOT]
+  start_date: "2020-01-01"
+  end_date: "2023-12-31"
+  validation_duration_days: 365
+
+portfolio:
+  initial_cash: 1000000.0
+  initial_assets: 500.0
+  commission_buy: 0.0010
+  commission_sell: 0.0010
+  slippage_bps: 5.0
+  warm_start_days: 100
+  rebalance_period_days: 14
+  enable_online_rebalance: true
+  delta: 0.001
+  lot_size:
+    default: 0.0001
+  tick_size:
+    default: 0.01
+  covariance:
+    window: 30
+    min_history: 30
+  erc:
+    tolerance: 1.0e-5
+    max_iterations: 1000
+    w_min: 0.05
+    w_max: 0.4
+
+environment:
+  exchange: simulator
+  window_size: 1
+  renderer: 
+    - plotly
+    - sharpe-plotly
+    - pnl-extrema-plotly
+    - roi-plotly
+    - drawdown-plotly
+    - pnl-plotly
+    - calmar-plotly
+    - hitratio-plotly
+    - turnover-plotly
+  renderer_formats: ["html"]
+  reward_scheme: simple
+
+output:
+  root_dir: pipelines/portfolio_erc_static/runs
+  renderer_formats: ["html"]
