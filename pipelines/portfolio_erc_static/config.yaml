@@ -35,7 +35,16 @@ portfolio:
 environment:
   exchange: simulator
   window_size: 1
-  renderer: ["plotly"]
+  renderer: 
+    - plotly
+    - sharpe-plotly
+    - pnl-extrema-plotly
+    - roi-plotly
+    - drawdown-plotly
+    - pnl-plotly
+    - calmar-plotly
+    - hitratio-plotly
+    - turnover-plotly
   renderer_formats: ["html"]
   reward_scheme: simple
 
