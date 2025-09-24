@@ -25,8 +25,8 @@ portfolio:
   tick_size:
     default: 0.01
   covariance:
-    window: 90
-    min_history: 90
+    window: 30
+    min_history: 30
   erc:
     tolerance: 1.0e-5
     max_iterations: 1000
