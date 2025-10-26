@@ -1,0 +1,135 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  data-tests:
+    name: Data Processing Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-data-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-data-
+          ${{ runner.os }}-pip-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-cov pytest-html
+        pip install pandas numpy scikit-learn pyyaml
+        # Install optional dependencies for data tests
+        pip install pandas-ta || true
+        pip install quantstats || true
+    
+    - name: Run data processing tests
+      run: |
+        cd pipelines/rl_agent_policy/data/tests
+        python main_test.py -v
+    
+    - name: Generate coverage report
+      if: always()
+      run: |
+        cd pipelines/rl_agent_policy/data/tests
+        python main_test.py --coverage
+    
+    - name: Upload data test results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: data-test-results
+        path: |
+          htmlcov/
+          .coverage
+    
+  model-tests:
+    name: Model Validation Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-model-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-model-
+          ${{ runner.os }}-pip-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-cov pytest-html
+        pip install torch --index-url https://download.pytorch.org/whl/cpu
+        pip install numpy
+    
+    - name: Run model validation tests
+      run: |
+        cd pipelines/rl_agent_policy/models/tests
+        python main_test.py -v
+    
+    - name: Generate coverage report
+      if: always()
+      run: |
+        cd pipelines/rl_agent_policy/models/tests
+        python main_test.py --coverage
+    
+    - name: Upload model test results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: model-test-results
+        path: |
+          htmlcov_models/
+          .coverage
+  
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [data-tests, model-tests]
+    if: always()
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Download all test results
+      uses: actions/download-artifact@v3
+    
+    - name: Display test summary
+      run: |
+        echo "=========================================="
+        echo "Test Execution Summary"
+        echo "=========================================="
+        echo ""
+        echo "✓ Data Processing Tests: Completed"
+        echo "✓ Model Validation Tests: Completed"
+        echo ""
+        echo "Test artifacts uploaded for review."
+        echo "=========================================="
+
