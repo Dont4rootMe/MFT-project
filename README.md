@@ -1,104 +1,380 @@
-﻿# [TensorTrade: Trade Efficiently with Reinforcement Learning](https://towardsdatascience.com/trade-smarter-w-reinforcement-learning-a5e91163f315?source=friends_link&sk=ea3afd0a305141eb9147be4718826dfb)
+﻿# MFT-project: Reinforcement Learning для Автоматизированной Торговли Криптовалютами
 
-[![Build Status](https://travis-ci.com/tensortrade-org/tensortrade.svg?branch=master)](https://travis-ci.org/tensortrade-org/tensortrade)
-[![Documentation Status](https://readthedocs.org/projects/tensortrade/badge/?version=latest)](https://tensortrade.org)
-[![Apache License](https://img.shields.io/github/license/tensortrade-org/tensortrade.svg?color=brightgreen)](http://www.apache.org/licenses/LICENSE-2.0)
-[![Discord](https://img.shields.io/discord/592446624882491402.svg?color=brightgreen)](https://discord.gg/ZZ7BGWh)
-[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
+## 🎯 Цель проекта
+
+**Бизнес-цель**: Разработка и развертывание интеллектуальной торговой системы на основе обучения с подкреплением (Reinforcement Learning) для автоматизации торговли криптовалютами в общем случае на множестве монет на множестве торговых бирж. Система должна максимизировать прибыль при управлении рисками путем принятия оптимальных торговых решений в режиме реального времени парадигмы MFT торговли (с частотой от 1 раза в день, до 1 раза в несколько минут).
+
+Данный проект содержит в себе реализованный и подогнанный под наши нужды код энвайронмента торговой площадки, для иммитации работы торговых бирж на исторических данных, своим интерфейсом совместимый с gymnassium от openai. Данный энв предлагает широкий спектр моделей поведения/интерфейсов взаимодействия обучаемой политики с рынком, покрывающий все нужды аналитиков набор логируемых метрик, настройки иммитатора трейдера, валют и торговых площадок.
+
+**Примемы**: 
+1) Обучение Convolution, Attention based агентов, обучаемых при помощи RL – A2C, PPO, DQN
+2) Применение LLM в качестве регрессора состояния рынка по новостям
+3) Применение байесовской оптимизации портфеля в качестве абсолютного состояния портфела, с использованием вывода агентов в качестве дельта экшенов
+4) Реализация классических бейзлайнов для валидации/мультиагентной схемы работы приложения. 
+5) Реализация telegram бота для мониторинга работы сервера
+
+### Основные свойства проекта
+
+Проект использует hydra фреймворк для организации экспериментов, разделен на логические состовляющие (pipelines, tensortrade и conf), предлагает широкий спектр графических методов валидации агентов.
+
+### Ключевые задачи:
+- Создание агентов RL (A2C, PPO, DQN) для генерации торговых сигналов
+- Разработка продакшн-системы с низкой латентностью для детерминированного исполнения ордеров
+- Обеспечение стабильности и надежности системы в условиях волатильности рынка
+- Минимизация рисков и максимизация доходности портфеля
+
+### Целевая аудитория:
+- Криптовалютные трейдеры
+- Инвестиционные фонды
+- Автоматизированные торговые платформы
 
 ---
 
-<div align="center">
-  <img src="https://github.com/notadamking/tensortrade/blob/master/docs/source/_static/logo.jpg">
-</div>
+## 📊 Целевые метрики для продакшена
+
+### 1. Производительность системы
+| Метрика | Целевое значение | Критичность |
+|---------|------------------|-------------|
+| **Среднее время отклика модели** | ≤ 1000 мс | Критично |
+| **P95 латентность** | ≤ 1200 мс | Высокая |
+
+### 2. Надежность и доступность
+| Метрика | Целевое значение | Критичность |
+|---------|------------------|-------------|
+| **Доля неуспешных запросов от клиента telegram** | ≤ 0.1% | Критично |
+| **Uptime сервиса** | ≥ 99.99% | Критично |
+| **Время автоматического восстановления (MTTR)** | ≤ 1 минут | Высокая |
+
+### 3. Использование ресурсов
+| Метрика | Целевое значение | SLA |
+|---------|------------------|-----|
+| **CPU utilization** | ≤ 70% | Средняя нагрузка |
+| **Memory usage** | ≤ 16 GB | Пик нагрузки |
+| **GPU memory (если используется)** | ≤ 24 GB | Пик нагрузки |
+| **Network latency** | ≤ 50 мс | К API биржи |
+
+### 4. Качество модели
+| Метрика | Целевое значение | Описание |
+|---------|------------------|----------|
+| **Процент неисполняемых ордеров** | ≤ 30% | Число ордеров, не способных быть исполненными при поставленных агентом ограничениях |
+| **Sharpe Ratio** | ≥ 1.5 | Отношение доходности к риску |
+| **Максимальная просадка (Max Drawdown)** | ≤ 15% | Максимальное падение капитала |
+| **Годовая доходность** | ≥ 20% | Среднегодовой возврат |
+| **Win Rate** | ≥ 55% | Доля прибыльных сделок |
+| **Profit Factor** | ≥ 1.5 | Отношение прибыли к убыткам |
+| **Средняя прибыль на сделку** | ≥ 0.5% | После комиссий |
+
+### 5. Мониторинг и наблюдаемость
+| Метрика | Целевое значение |
+|---------|------------------|
+| **Логирование в telegram** | Мониторинг каждого действия запущенного ансамбля агентов |
+| **Model performance degradation** | Alert при Sharpe < 1.0 |
+| **Детекция прерывания временного ряда биржы** | Детекция изменения распределения цен на бирже для вызова Alert и снятия памяти агента |
+| **Anomaly detection rate** | ≤ 2% ложных срабатываний |
 
 ---
 
-**TensorTrade is still in Beta, meaning it should be used very cautiously if used in production, as it may contain bugs.**
+## 📁 Набор данных
 
-TensorTrade is an open source Python framework for building, training, evaluating, and deploying robust trading algorithms using reinforcement learning. The framework focuses on being highly composable and extensible, to allow the system to scale from simple trading strategies on a single CPU, to complex investment strategies run on a distribution of HPC machines.
+### Источники данных
+**Основной источник**: Исторические данные торгов с различных бирж (например Binance, Bitfinex или Bitstamp) с доступным для фетчинга api. В том числе мы рассматриваем специализированные платформы по подписке, предлагающие специально разработанные высокоинформативные фичи. 
 
-Under the hood, the framework uses many of the APIs from existing machine learning libraries to maintain high quality data pipelines and learning models. One of the main goals of TensorTrade is to enable fast experimentation with algorithmic trading strategies, by leveraging the existing tools and pipelines provided by `numpy`, `pandas`, `gym`, `keras`, and `tensorflow`.
+### Структура данных
+Каждый датасет содержит следующие колонки:
+- **date** - Временная метка
+- **open** - Цена открытия
+- **high** - Максимальная цена
+- **low** - Минимальная цена
+- **close** - Цена закрытия
+- **volume** - Объем торгов
 
-Every piece of the framework is split up into re-usable components, allowing you to take advantage of the general use components built by the community, while keeping your proprietary features private. The aim is to simplify the process of testing and deploying robust trading agents using deep reinforcement learning, to allow you and I to focus on creating profitable strategies.
+Датасет может иметь другие фичи, как например если мы используем api 3 лиц с уже созданными умными фичами.
 
-_The goal of this framework is to enable fast experimentation, while maintaining production-quality data pipelines._
+### Feature Engineering
+Проект использует модульную систему генерации признаков:
+- **Технические индикаторы**: RSI, MACD, EMA, SMA, Bollinger Bands, ATR
+- **Объемные индикаторы**: OBV, Volume Rate of Change
+- **Ценовые паттерны**: Support/Resistance levels, Candlestick patterns
+- **Рыночная микроструктура**: Bid-ask spread, Order book imbalance
+- **Временные признаки**: Day of week, Hour of day, Market session
+- **Инженерный анализ**: индикаторы фигур инженерного анализа
 
-Read [the documentation](https://www.tensortrade.org/en/latest/).
+Конфигурация признаков: `conf/data/feature_engineering/`
 
-## Guiding principles
+### Feature Selection
+Используется автоматизированный отбор признаков для уменьшения размерности:
+- Фильтрация по корреляции
+- Recursive Feature Elimination (RFE)
+- Feature importance из tree-based моделей
 
-_Inspired by [Keras' guiding principles](https://github.com/keras-team/keras)._
+Конфигурация отбора: `conf/data/feature_selection/`
 
-- **User friendliness.** TensorTrade is an API designed for human beings, not machines. It puts user experience front and center. TensorTrade follows best practices for reducing cognitive load: it offers consistent & simple APIs, it minimizes the number of user actions required for common use cases, and it provides clear and actionable feedback upon user error.
+### Разделение данных
+- **Validation set**: 365 последних дней одним непрерывным контекстом
+- **Training set**: Все остальные (конфигурируемо) дни исторических данных
 
-- **Modularity.** A trading environment is a conglomeration of fully configurable modules that can be plugged together with as few restrictions as possible. In particular, exchanges, feature pipelines, action schemes, reward schemes, trading agents, and performance reports are all standalone modules that you can combine to create new trading environments.
+### Временные характеристики
+- **Таймфрейм**: default – 1 час / 1 день (конфигурируемо)
+- **Период данных**: 2+ года исторических данных (зависит от доступности исторических данных для используемых монет).
+- **Window size**: Скользящее окно (default – 20-60 периодов для агента)
 
-- **Easy extensibility.** New modules are simple to add (as new classes and functions), and existing modules provide ample examples. To be able to easily create new modules allows for total expressiveness, making TensorTrade suitable for advanced research and production use.
+---
 
-## Getting Started
+## 🔬 План экспериментов
 
-You can get started testing on Google Colab or your local machine, by viewing our [many examples](https://github.com/tensortrade-org/tensortrade/tree/master/examples)
+### Этап 1: Baseline модели (Недели 1-2)
+**Цель**: Установить базовый уровень производительности
 
-## Installation
+#### Эксперименты:
+1. **Статистические стратегии**
+   - Buy & Hold
+   - Moving Average Crossover
+   - Z-score Mean Reversion (`pipelines/z_score_mean_reversion/`)
+   - Portfoliio ERC reweighter (`pipelines/portfolio_erc_static`)
+   
+2. **Machine Learning Baseline**
+   - K-Nearest Neighbors Policy (`pipelines/knn_policy/`)
+   - Random Forest Classifier
+   - Logistic Regression
 
-TensorTrade requires Python >= 3.11.9 for all functionality to work as expected.
-You can install TensorTrade both as a pre-packaged solution by running the default setup command.
+**Метрики для сравнения**: Sharpe Ratio, Max Drawdown, Total Return, PNL
+
+---
+
+### Этап 2: Разработка RL агентов (Недели 3-6)
+**Цель**: Обучение и оптимизация RL моделей
+
+#### 2.1 Policy Gradient методы
+- **A2C (Advantage Actor-Critic)** ✅
+  - Конфигурация: `conf/train/a2c_train.yaml`
+  - Архитектура: Shared network + Actor/Critic heads
+  
+- **PPO (Proximal Policy Optimization)**
+  - Конфигурация: `conf/train/ppo_train.yaml`
+  - Clipping parameter: 0.1-0.3
+
+
+#### 2.2 Value-based методы
+- **DQN (Deep Q-Network)**
+  - Experience replay buffer
+  - Target network updates
+  - Double DQN modification
+
+#### 2.3 Архитектуры нейронных сетей
+Тестирование различных backbone моделей:
+- **MLP (Multi-Layer Perceptron)** - `conf/model/backbone/mlp.yaml`
+- **CNN (Convolutional Neural Network)** - `conf/model/backbone/cnn.yaml`
+- **LSTM (Long Short-Term Memory)** - `notebooks/examples/use_lstm_rllib.ipynb`
+- **Attention Networks** - `notebooks/examples/use_attentionnet_rllib.ipynb`
+
+**Гиперпараметры для tuning**:
+- Learning rate: [1e-5, 1e-3]
+- Batch size: [32, 64, 128, 256]
+- Hidden layers: [64, 128, 256, 512]
+- Entropy coefficient: [0.001, 0.1]
+- Discount factor (gamma): [0.95, 0.99, 0.999]
+
+---
+
+### Этап 3: Оптимизация и регуляризация (Недели 7-8)
+**Цель**: Предотвращение переобучения и улучшение обобщающей способности
+
+#### Техники:
+1. **Dropout** (0.1-0.5)
+2. **L2 regularization** (weight decay)
+3. **Gradient clipping** (max norm: 0.5-5.0)
+4. **Early stopping** (validation Sharpe Ratio)
+5. **Data augmentation**:
+   - Добавление шума к ценам
+   - Временные сдвиги
+   - Stochastic processes (`tensortrade/stochastic/`)
+
+#### Эксперименты с reward shaping:
+- Risk-adjusted returns
+- Custom reward functions
+- Multi-objective optimization (return vs risk)
+
+---
+
+### Этап 4: Portfolio Management (Недели 9-10)
+**Цель**: Оптимизация управления портфелем
+
+#### Стратегии:
+1. **Equal Risk Contribution (ERC)** ✅
+   - Pipeline: `pipelines/portfolio_erc_static/`
+   - Метод: Ковариационная матрица + ERC solver
+   
+2. **Multi-asset RL agent**
+   - Расширение на несколько криптовалют
+   - Dynamic position sizing
+   
+3. **Action schemes**:
+   - Simple discrete actions (текущая)
+   - Continuous action space
+   - Multi-discrete actions (asset x size)
+
+**Trade sizing strategies**:
+- Fixed percentage: [0.5%, 1%, 5%, 10%, 20%, 30%, 40%]
+- Kelly Criterion
+- Volatility-based sizing
+
+---
+
+### Этап 5: Backtesting и валидация (Недели 11-12)
+**Цель**: Тщательная проверка на исторических данных
+
+#### Методология:
+1. **Walk-forward analysis**
+   - Rolling window: 1 год обучение, 3 месяца тест
+   - Retraining frequency: ежемесячно
+   
+2. **Out-of-time validation**
+   - Тест на совершенно новых данных
+   - Разные рыночные режимы (bull/bear/sideways)
+   
+3. **Monte Carlo симуляции**
+   - 1000+ симуляций с различными начальными условиями
+   - Оценка worst-case сценариев
+   
+4. **Transaction cost analysis**
+   - Учет комиссий биржи (0.1-0.5%)
+   - Slippage modeling
+   - Market impact
+
+**Отчеты**: QuantStats integration для comprehensive analysis
+
+---
+
+### Этап 6: Продакшн оптимизация (Недели 13-14)
+**Цель**: Подготовка к развертыванию
+
+#### Оптимизации:
+1. **Model optimization**
+   - ONNX export для ускорения inference
+   - Quantization (INT8)
+   - Model pruning
+   
+2. **Infrastructure**
+   - Containerization (Docker)
+   - Orchestration (Kubernetes)
+   - Model serving (TorchServe/TensorFlow Serving)
+   
+3. **Monitoring pipeline**
+   - Prometheus + Grafana
+   - Custom dashboards для торговых метрик
+   - Alerting system
+   
+4. **CI/CD pipeline**
+   - Automated testing
+   - Model versioning (MLflow/W&B)
+   - A/B testing framework
+
+---
+
+### Этап 7: Distributed training (Опционально)
+**Цель**: Ускорение обучения для больших моделей
+
+#### Подходы:
+- **Data parallelism**: `accelerate` library support ✅
+- **Multiple GPUs**: Distributed training
+- **Hyperparameter optimization**: Ray Tune / Optuna
+
+---
+
+## 🛠 Технологический стек
+
+### Core ML/RL frameworks:
+- **PyTorch** - Глубокое обучение
+- **Gymnasium** - RL environment interface
+- **TensorTrade** - Trading environment framework
+
+### Data & Feature Engineering:
+- **Pandas** - Обработка временных рядов
+- **NumPy** - Численные вычисления
+- **TA-Lib** - Технические индикаторы (опционально)
+
+### Configuration & Experiment Management:
+- **Hydra** - Управление конфигурациями
+- **OmegaConf** - Конфигурационные файлы
+
+### Visualization & Analysis:
+- **Plotly** - Интерактивные графики
+- **Matplotlib** - Статические визуализации
+- **QuantStats** - Торговая аналитика
+
+### Production:
+- **Accelerate** - Distributed training
+- **ONNX** - Model optimization (planned)
+
+---
+
+## 🚀 Быстрый старт
+
+### Установка зависимостей:
 ```bash
-pip install tensortrade
-```
-You can then alternatively install TensorTrade directly from the master code repository, pulling directly from the latest commits. This will give you the latest features\fixes, but it is highly untested code, so proceed at your own risk.
-```bash
-pip install git+https://github.com/tensortrade-org/tensortrade.git
-```
-Alternatively you can clone\download the repository in your local environment an manually install the requirements, either the "base" ones, or the ones that also include requirements to run the examples in the documentation.
-```bash
+# Используя pipenv
+pipenv install
+
+# Или используя pip
 pip install -r requirements.txt
-pip install -r examples/requirements.txt
 ```
 
-## Docker
-
-To run the commands below, ensure Docker is installed. Visit https://docs.docker.com/install/ for more information.
-
-### Run Jupyter Notebooks
-
-To run a jupyter notebook in your browser, execute the following command and visit the `http://127.0.0.1:8888/?token=...` link printed to the command line.
-
+### Обучение A2C агента:
 ```bash
-make run-notebook
+# Запуск с дефолтной конфигурацией
+python pipelines/rl_agent_policy/trainer.py
+
+# Или через shell script
+bash train.sh
 ```
 
-### Build Documentation
+### Конфигурация:
+Все параметры настраиваются через YAML файлы в директории `conf/`:
+- `conf/a2c_trainer.yaml` - Основная конфигурация
+- `conf/data/` - Параметры данных и признаков
+- `conf/model/` - Архитектура модели
+- `conf/train/` - Параметры обучения
 
-To build the HTML documentation, execute the following command.
+---
 
-```bash
-make run-docs
-```
+## Ожидаемые результаты
 
-### Run Test Suite
+### Минимальные критерии успеха:
+- Sharpe Ratio > 1.5
+- Max Drawdown < 15%
+- Win Rate > 55%
+- Inference latency < 100ms
 
-To run the test suite, execute the following command.
+### Оптимальные результаты:
+- Sharpe Ratio > 2.0
+- Max Drawdown < 10%
+- Годовая доходность > 30%
+- Стабильная работа в различных рыночных условиях
 
-```bash
-make run-tests
-```
+---
 
-## Support
+## Документация и примеры
 
-You can ask questions and join the development discussion:
+Подробные примеры и туториалы доступны в директории `notebooks/examples/`:
+- `train_and_evaluate.ipynb` - Полный цикл обучения и оценки
+- `ledger_example.ipynb` - Работа с торговым журналом
+- `use_lstm_rllib.ipynb` - Использование LSTM архитектуры
+- `use_attentionnet_rllib.ipynb` - Attention mechanisms
+- `setup_environment_tutorial.ipynb` - Настройка окружения
 
-- On the [TensorTrade Discord server](https://discord.gg/ZZ7BGWh).
-- On the [TensorTrade Gitter](https://gitter.im/tensortrade-framework/community).
+---
 
-You can also post **bug reports and feature requests** in [GitHub issues](https://github.com/notadamking/tensortrade/issues). Make sure to read [our guidelines](https://github.com/notadamking/tensortrade/blob/master/CONTRIBUTING.md) first.
+## Лицензия
 
+Apache License 2.0
 
-## Contributors
+---
 
-Contributions are encouraged and welcomed. This project is meant to grow as the community around it grows. Let me know on Discord in the #suggestions channel if there is anything that you would like to see in the future, or if there is anything you feel is missing.
+## Контакты
 
-**Working on your first Pull Request?** You can learn how from this _free_ series [How to Contribute to an Open Source Project on GitHub](https://egghead.io/series/how-to-contribute-to-an-open-source-project-on-github)
+Для вопросов и предложений создавайте Issues в репозитории.
 
-![https://github.com/notadamking/tensortrade/graphs/contributors](https://contributors-img.firebaseapp.com/image?repo=notadamking/tensortrade)
+---
+
+**Последнее обновление**: Октябрь 2025
+
