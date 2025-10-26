@@ -312,19 +312,19 @@
 
 ### Установка зависимостей:
 ```bash
-# Используя pipenv
-pipenv install
 
-# Или используя pip
+micromamba create -n mft_env python=3.11.13
+micromamba activate mft_env
+
 pip install -r requirements.txt
 ```
 
 ### Обучение A2C агента:
 ```bash
-# Запуск с дефолтной конфигурацией
+# Запуск на одной gpu одной ноде
 python pipelines/rl_agent_policy/trainer.py
 
-# Или через shell script
+# Или через accelerate
 bash train.sh
 ```
 
