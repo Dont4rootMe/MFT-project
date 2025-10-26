@@ -50,16 +50,35 @@ class DataHandler:
         self.exchange = exchange
         self.main_currency = main_currency
         
-        # Convert Hydra configs to plain dictionaries
-        fe_cfg = OmegaConf.to_container(feature_engineering, resolve=True) if feature_engineering else {}
-        fs_cfg = OmegaConf.to_container(feature_selection, resolve=True) if feature_selection else {}
+        # Convert Hydra configs to plain dictionaries (handle both OmegaConf and dict)
+        if feature_engineering:
+            if OmegaConf.is_config(feature_engineering):
+                fe_cfg = OmegaConf.to_container(feature_engineering, resolve=True)
+            else:
+                fe_cfg = feature_engineering if isinstance(feature_engineering, dict) else {}
+        else:
+            fe_cfg = {}
+            
+        if feature_selection:
+            if OmegaConf.is_config(feature_selection):
+                fs_cfg = OmegaConf.to_container(feature_selection, resolve=True)
+            else:
+                fs_cfg = feature_selection if isinstance(feature_selection, dict) else {}
+        else:
+            fs_cfg = {}
 
         # Initialize processors
         self.feature_processor = FeatureEngineeringProcessor(fe_cfg)
         self.feature_selector = FeatureSelector(fs_cfg)
 
-        # Cache configuration
-        self.cache_config = OmegaConf.to_container(cache, resolve=True) if cache else {}
+        # Cache configuration (handle both OmegaConf and dict)
+        if cache:
+            if OmegaConf.is_config(cache):
+                self.cache_config = OmegaConf.to_container(cache, resolve=True)
+            else:
+                self.cache_config = cache if isinstance(cache, dict) else {}
+        else:
+            self.cache_config = {}
         self.cache_enabled = self.cache_config.get("enabled", False)
         self.cache_dir = self.cache_config.get("dir", "cache")
         self.checkpoint_name = self.cache_config.get("checkpoint_name")
