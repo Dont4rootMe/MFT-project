@@ -25,7 +25,7 @@ jobs:
       uses: actions/cache@v3
       with:
         path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-data-${{ hashFiles('requirements.txt') }}
+        key: ${{ runner.os }}-pip-data-${{ hashFiles('requirements_tests.txt') }}
         restore-keys: |
           ${{ runner.os }}-pip-data-
           ${{ runner.os }}-pip-
@@ -35,9 +35,8 @@ jobs:
         python -m pip install --upgrade pip
         # Install torch CPU version first
         pip install torch --index-url https://download.pytorch.org/whl/cpu
-        # Filter out GPU-specific packages and install the rest
-        grep -v "^torch==" requirements.txt | grep -v "^nvidia-" | grep -v "^triton==" | grep -v "^#" | grep -v "^$" > requirements_filtered.txt
-        pip install -r requirements_filtered.txt
+        # Install test-specific requirements
+        pip install -r requirements_tests.txt
     
     - name: Run data processing tests
       run: |
@@ -76,7 +75,7 @@ jobs:
       uses: actions/cache@v3
       with:
         path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-model-${{ hashFiles('requirements.txt') }}
+        key: ${{ runner.os }}-pip-model-${{ hashFiles('requirements_tests.txt') }}
         restore-keys: |
           ${{ runner.os }}-pip-model-
           ${{ runner.os }}-pip-
@@ -86,9 +85,8 @@ jobs:
         python -m pip install --upgrade pip
         # Install torch CPU version first
         pip install torch --index-url https://download.pytorch.org/whl/cpu
-        # Filter out GPU-specific packages and install the rest
-        grep -v "^torch==" requirements.txt | grep -v "^nvidia-" | grep -v "^triton==" | grep -v "^#" | grep -v "^$" > requirements_filtered.txt
-        pip install -r requirements_filtered.txt
+        # Install test-specific requirements
+        pip install -r requirements_tests.txt
     
     - name: Run model validation tests
       run: |
