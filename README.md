@@ -145,7 +145,7 @@
 **Цель**: Обучение и оптимизация RL моделей
 
 #### 2.1 Policy Gradient методы
-- **A2C (Advantage Actor-Critic)** ✅
+- **A2C (Advantage Actor-Critic)**
   - Конфигурация: `conf/train/a2c_train.yaml`
   - Архитектура: Shared network + Actor/Critic heads
   
@@ -200,7 +200,7 @@
 **Цель**: Оптимизация управления портфелем
 
 #### Стратегии:
-1. **Equal Risk Contribution (ERC)** ✅
+1. **Equal Risk Contribution (ERC)**
    - Pipeline: `pipelines/portfolio_erc_static/`
    - Метод: Ковариационная матрица + ERC solver
    
@@ -275,7 +275,7 @@
 **Цель**: Ускорение обучения для больших моделей
 
 #### Подходы:
-- **Data parallelism**: `accelerate` library support ✅
+- **Data parallelism**: `accelerate` library support
 - **Multiple GPUs**: Distributed training
 - **Hyperparameter optimization**: Ray Tune / Optuna
 
