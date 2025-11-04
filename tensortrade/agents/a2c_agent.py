@@ -21,9 +21,11 @@
 
 from deprecated import deprecated
 import random
+import json
 from datetime import datetime
 from collections import namedtuple
-from typing import Optional
+from typing import Optional, Dict, Any, Union
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -130,6 +132,171 @@ class A2CAgent(Agent):
         self.shared_network.load_state_dict(state["shared"])
         self.actor_head.load_state_dict(state["actor"])
         self.critic_head.load_state_dict(state["critic"])
+
+    # ────────────────────────────────────────────────────────────────────────
+    # Transformers API (HuggingFace compatible)
+    # ────────────────────────────────────────────────────────────────────────
+
+    def save_pretrained(
+        self,
+        save_directory: Union[str, Path],
+        **kwargs
+    ) -> None:
+        """
+        Save agent model and configuration using Transformers interface.
+        
+        This method saves:
+        - Model weights as pytorch_model.bin
+        - Configuration as config.json
+        
+        Args:
+            save_directory: Directory to save model and config files
+            **kwargs: Additional metadata to save in config
+        """
+        save_directory = Path(save_directory)
+        save_directory.mkdir(parents=True, exist_ok=True)
+        
+        # Save model state dict
+        model_path = save_directory / "pytorch_model.bin"
+        state_dict = {
+            "shared_network": self.shared_network.state_dict(),
+            "actor_head": self.actor_head.state_dict(),
+            "critic_head": self.critic_head.state_dict(),
+        }
+        torch.save(state_dict, model_path)
+        
+        # Save configuration
+        config = self._get_model_config()
+        config.update(kwargs)  # Add any additional metadata
+        config_path = save_directory / "config.json"
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2)
+        
+        print(f"Model saved to {save_directory}")
+
+    @classmethod
+    def from_pretrained(
+        cls,
+        pretrained_model_name_or_path: Union[str, Path],
+        env: "TradingEnvironment",
+        device: Optional[str] = None,
+        **kwargs
+    ) -> "A2CAgent":
+        """
+        Load a pretrained agent from a directory using Transformers interface.
+        
+        Args:
+            pretrained_model_name_or_path: Path to directory containing model files
+            env: Trading environment instance
+            device: Device to load model on ('cuda', 'cpu', or None for auto)
+            **kwargs: Additional arguments for agent initialization
+            
+        Returns:
+            Loaded A2CAgent instance
+        """
+        model_path = Path(pretrained_model_name_or_path)
+        
+        # Load configuration
+        config_path = model_path / "config.json"
+        if config_path.exists():
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+        else:
+            config = {}
+        
+        # Create agent instance
+        agent = cls(env=env, device=device, **kwargs)
+        
+        # Load model weights
+        weights_path = model_path / "pytorch_model.bin"
+        if weights_path.exists():
+            state_dict = torch.load(weights_path, map_location=agent.device)
+            agent.shared_network.load_state_dict(state_dict["shared_network"])
+            agent.actor_head.load_state_dict(state_dict["actor_head"])
+            agent.critic_head.load_state_dict(state_dict["critic_head"])
+            print(f"Model loaded from {model_path}")
+        else:
+            raise FileNotFoundError(
+                f"Model weights not found at {weights_path}. "
+                f"Expected 'pytorch_model.bin' in {model_path}"
+            )
+        
+        return agent
+
+    def _get_model_config(self) -> Dict[str, Any]:
+        """
+        Get model configuration for saving.
+        
+        Returns:
+            Dictionary containing model configuration
+        """
+        config = {
+            "model_type": "a2c_agent",
+            "agent_class": self.__class__.__name__,
+            "n_actions": self.n_actions,
+            "observation_shape": list(self.observation_shape),
+            "device": str(self.device),
+            "shared_network": {
+                "class": self.shared_network.__class__.__name__,
+                "output_dim": getattr(self.shared_network, "output_dim", None),
+            },
+            "actor_head": {
+                "class": self.actor_head.__class__.__name__,
+            },
+            "critic_head": {
+                "class": self.critic_head.__class__.__name__,
+            },
+        }
+        
+        if self._action_nvec is not None:
+            config["action_nvec"] = self._action_nvec.tolist()
+        
+        return config
+
+    def push_to_hub(
+        self,
+        repo_id: str,
+        commit_message: str = "Upload A2C agent",
+        **kwargs
+    ) -> str:
+        """
+        Upload model to HuggingFace Hub.
+        
+        Note: Requires huggingface_hub package to be installed.
+        
+        Args:
+            repo_id: Repository ID on HuggingFace Hub (e.g., 'username/model-name')
+            commit_message: Commit message for the upload
+            **kwargs: Additional arguments for HfApi.upload_folder
+            
+        Returns:
+            URL of the uploaded model
+        """
+        try:
+            from huggingface_hub import HfApi
+        except ImportError as exc:
+            raise ImportError(
+                "huggingface_hub is required to push to Hub. "
+                "Install it with: pip install huggingface_hub"
+            ) from exc
+        
+        import tempfile
+        
+        # Save to temporary directory
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            self.save_pretrained(tmp_dir, **kwargs)
+            
+            # Upload to hub
+            api = HfApi()
+            url = api.upload_folder(
+                folder_path=tmp_dir,
+                repo_id=repo_id,
+                commit_message=commit_message,
+                **kwargs
+            )
+            
+            print(f"Model uploaded to https://huggingface.co/{repo_id}")
+            return url
 
     # ────────────────────────────────────────────────────────────────────────
     # Utilities
