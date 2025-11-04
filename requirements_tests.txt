@@ -28,6 +28,7 @@ pytest-timeout>=2.4.0
 pandas>=2.0.0
 numpy>=1.26.0
 scikit-learn>=1.7.0
+matplotlib>=3.0.0
 
 # Deep Learning Framework
 # Required for model architecture and output validation tests
@@ -44,6 +45,10 @@ hydra-core>=1.3.0
 # Reinforcement Learning Environment
 # Required by tensortrade (dependency of data_parser)
 gymnasium>=1.0.0
+
+# Jupyter/IPython
+# Required by tensortrade renderers
+ipykernel>=6.0.0
 
 # Utilities
 # Required for parallel processing and caching
@@ -67,6 +72,7 @@ joblib>=1.5.0
 # ============================================================================
 # Notes:
 # - This file is used by .github/workflows/tests.yml for CI/CD
-# - Total ~13 core packages vs ~135 in main requirements.txt
+# - Total ~15 core packages vs ~135 in main requirements.txt
 # - Excludes: nvidia-cuda-*, nvidia-cudnn-*, triton, tensorflow, etc.
+# - IPython and matplotlib are required by tensortrade's renderers
 # ============================================================================
