@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main, master, develop ]
   pull_request:
-    branches: [ main, master, develop ]
+    branches: [ main, master, develop, otsechka-1 ]
   workflow_dispatch:  # Allow manual trigger
 
 jobs:
