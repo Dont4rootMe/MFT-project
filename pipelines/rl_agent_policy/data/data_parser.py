@@ -185,6 +185,8 @@ class DataHandler:
                 data = data[['date', 'open', 'high', 'low', 'close', 'volume']].copy()
                 data = self._prepare_raw_data(data)
                 
+                data = data.rename(columns={'date': 'timestamp', 'open': 'open_price', 'high': 'high_price', 'low': 'low_price', 'close': 'close_price', 'volume': 'volume_price'})
+                
                 raw_data[currency] = data
                 logger.info(f"✓ Successfully fetched {len(data)} records for {currency}")
                 
