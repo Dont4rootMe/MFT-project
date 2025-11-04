@@ -1,0 +1,78 @@
+# ============================================================================
+# Test-Specific Requirements for MFT Project
+# ============================================================================
+# This file contains minimal dependencies needed to run the test suite.
+# It excludes GPU-specific packages (nvidia-*, triton) for CI/CD compatibility.
+#
+# INSTALLATION:
+#   1. Install PyTorch CPU version first:
+#      pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   2. Install test requirements:
+#      pip install -r requirements_tests.txt
+#
+# USAGE:
+#   - Data tests: cd pipelines/rl_agent_policy/data/tests && python main_test.py -v
+#   - Model tests: cd pipelines/rl_agent_policy/models/tests && python main_test.py -v
+# ============================================================================
+
+# Test Framework
+# Required for running pytest-based tests with coverage and HTML reports
+pytest>=8.0.0
+pytest-cov>=4.0.0
+pytest-html>=3.1.0
+pytest-mock>=3.10.0
+pytest-timeout>=2.4.0
+
+# Data Processing Libraries
+# Required for data processing and feature engineering tests
+pandas>=2.0.0
+numpy>=1.26.0
+scikit-learn>=1.7.0
+matplotlib>=3.0.0
+
+# Deep Learning Framework
+# Required for model architecture and output validation tests
+# Note: Install CPU version for faster tests and CI/CD compatibility
+# Command: pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch>=2.0.0
+
+# Configuration Management
+# Required by DataHandler and FeatureEngineeringProcessor
+omegaconf>=2.3.0
+PyYAML>=6.0.0
+hydra-core>=1.3.0
+
+# Reinforcement Learning Environment
+# Required by tensortrade (dependency of data_parser)
+gymnasium>=1.0.0
+
+# Jupyter/IPython
+# Required by tensortrade renderers
+ipykernel>=6.0.0
+
+# Utilities
+# Required for parallel processing and caching
+joblib>=1.5.0
+
+# ============================================================================
+# Optional Dependencies (commented out by default)
+# Uncomment if you need to test specific features
+# ============================================================================
+
+# Technical Analysis Features
+# Required only if testing technical indicator generation
+# pandas-ta>=0.3.0
+# ta>=0.11.0
+
+# Quantitative Analysis Features
+# Required only if testing quantstats features
+# quantstats>=0.0.60
+# yfinance>=0.2.0
+
+# ============================================================================
+# Notes:
+# - This file is used by .github/workflows/tests.yml for CI/CD
+# - Total ~15 core packages vs ~135 in main requirements.txt
+# - Excludes: nvidia-cuda-*, nvidia-cudnn-*, triton, tensorflow, etc.
+# - IPython and matplotlib are required by tensortrade's renderers
+# ============================================================================
