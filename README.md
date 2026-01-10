@@ -299,6 +299,9 @@
 - **DVC** - Версионирование данных и моделей, ML пайплайны
 - **MLflow** - Трекинг экспериментов, логирование метрик и артефактов
 
+### Deployment & Infrastructure:
+- **Docker** - Контейнеризация для воспроизводимого инференса
+
 ### Visualization & Analysis:
 - **Plotly** - Интерактивные графики
 - **Matplotlib** - Статические визуализации
@@ -351,6 +354,26 @@ dvc repro
 - `conf/data/` - Параметры данных и признаков
 - `conf/model/` - Архитектура модели
 - `conf/train/` - Параметры обучения
+
+### Инференс через Docker:
+```bash
+# Сборка образа (предварительно: dvc pull)
+docker build -t ml-app:v1 .
+
+# Single mode: одно предсказание для реального трейдинга
+docker run -v $(pwd)/data:/data ml-app:v1 single \
+    --input_path /data/raw/LINK_USDT_1d.csv \
+    --output_path /data/pred.json
+
+# Batch mode: бэктестинг со скользящим окном
+docker run -v $(pwd)/data:/data ml-app:v1 batch \
+    --input_path /data/raw/LINK_USDT_1d.csv \
+    --output_path /data/preds.csv
+
+# Проверка результатов
+cat data/pred.json   # Single mode
+head data/preds.csv  # Batch mode
+```
 
 ---
 
@@ -571,6 +594,171 @@ mlruns/
 │   └── meta.yaml
 └── models/                     # Зарегистрированные модели
 ```
+
+---
+
+## 🐳 Docker: Контейнеризация для инференса
+
+### Сборка Docker-образа
+
+```bash
+# Убедитесь, что модель загружена
+dvc pull outputs/model.dvc
+
+# Соберите образ
+docker build -t ml-app:v1 .
+```
+
+### Запуск контейнера
+
+Модель работает на основе скользящего окна последних N периодов (по умолчанию 30).
+Доступны два режима работы:
+
+```bash
+# === SINGLE MODE: Одно предсказание для реального трейдинга ===
+# Входной файл должен содержать минимум window_size строк
+# Модель использует последние N периодов для одного предсказания
+docker run -v $(pwd)/data:/data ml-app:v1 single \
+    --input_path /data/raw/LINK_USDT_1d.csv \
+    --output_path /data/pred.json
+
+# === BATCH MODE: Бэктестинг со скользящим окном ===
+# Обрабатывает весь файл, генерируя предсказание для каждого окна
+docker run -v $(pwd)/data:/data ml-app:v1 batch \
+    --input_path /data/raw/LINK_USDT_1d.csv \
+    --output_path /data/preds.csv
+
+# С указанием GPU (если доступен)
+docker run --gpus all -v $(pwd)/data:/data ml-app:v1 single \
+    --input_path /data/window.csv \
+    --output_path /data/pred.json
+
+# Интерактивный режим для отладки
+docker run -it --entrypoint /bin/bash ml-app:v1
+```
+
+### Структура Dockerfile
+
+```dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+
+# Зависимости
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+# Исходный код и модель
+COPY tensortrade/ pipelines/ conf/ src/ ./
+COPY outputs/model/checkpoints/latest/ ./outputs/model/checkpoints/latest/
+
+# Точка входа
+ENTRYPOINT ["python", "-m", "src.predict"]
+```
+
+### Скрипт predict.py
+
+**Назначение**: Загружает обученную модель и генерирует торговые сигналы.
+
+**Принцип работы**: Модель анализирует скользящее окно последних N периодов (по умолчанию 30) и выдаёт одно торговое решение.
+
+#### Два режима работы:
+
+| Режим | Назначение | Входные данные | Выходные данные |
+|-------|------------|----------------|-----------------|
+| `single` | Реальный трейдинг | CSV с ≥30 строками | JSON с одним предсказанием |
+| `batch` | Бэктестинг | CSV с историей | CSV с предсказанием на каждое окно |
+
+#### Входные данные (`--input_path`)
+- CSV-файл с рыночными данными (OHLCV формат)
+- **Обязательные колонки**: `open`, `high`, `low`, `close`, `volume`
+- **Опциональная колонка**: `date` или `open_time` (для временных меток)
+- **Минимум строк**: `window_size` (30 по умолчанию)
+- **Рекомендуется**: 100+ строк для стабильного feature engineering
+
+```csv
+open_time,open,high,low,close,volume
+1609459200000,0.35,0.38,0.34,0.37,1000000
+1609545600000,0.37,0.40,0.36,0.39,1200000
+...
+```
+
+#### Выходные данные
+
+**Single mode** (`pred.json`):
+```json
+{
+  "prediction": {
+    "action_id": 11,
+    "signal": "SELL",
+    "position_size": 0.1,
+    "confidence": 0.72,
+    "probabilities": {"hold": 0.15, "buy": 0.13, "sell": 0.72}
+  },
+  "metadata": {
+    "window_size": 30,
+    "num_features": 39,
+    "timestamp": "2026-01-10T14:30:00"
+  }
+}
+```
+
+**Batch mode** (`preds.csv`):
+```csv
+step,date,window_start,window_end,action_id,signal,position_size,confidence,prob_hold,prob_buy,prob_sell
+0,2021-01-30,0,29,0,HOLD,0.0,0.85,0.85,0.10,0.05
+1,2021-01-31,1,30,3,BUY,0.05,0.72,0.15,0.72,0.13
+...
+```
+
+#### Сигналы торговли
+
+Сигналы и размеры позиций **автоматически загружаются из конфигурации** (`conf/a2c_trainer.yaml`), чтобы гарантировать соответствие параметрам обучения модели.
+
+| action_id | signal | position_size | Описание |
+|-----------|--------|---------------|----------|
+| 0         | HOLD   | 0%            | Не торговать |
+| 1-7       | BUY    | 0.5% - 40%    | Купить с размером позиции |
+| 8-14      | SELL   | 0.5% - 40%    | Продать с размером позиции |
+
+**⚠️ Важно**: Размеры позиций (`trade_sizes`) берутся из `conf/a2c_trainer.yaml`:
+```yaml
+action_scheme:
+  name: simple
+  trade_sizes: [0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4]
+```
+Изменение этих значений после обучения модели приведёт к некорректным предсказаниям!
+
+### Команды CLI
+
+```bash
+# Справка
+python -m src.predict --help
+python -m src.predict single --help
+python -m src.predict batch --help
+
+# Single mode: одно предсказание на основе последних 30 периодов
+python -m src.predict single \
+    --input_path data/raw/LINK_USDT_1d.csv \
+    --output_path pred.json
+
+# Batch mode: бэктестинг со скользящим окном
+python -m src.predict batch \
+    --input_path data/raw/LINK_USDT_1d.csv \
+    --output_path preds.csv
+
+# Проверка результатов
+cat pred.json        # Single mode
+head preds.csv       # Batch mode
+```
+
+### .dockerignore
+
+Файл `.dockerignore` исключает ненужные файлы из образа:
+- Git/DVC метаданные
+- Python кэш и виртуальные окружения
+- MLflow артефакты
+- Промежуточные данные (используйте volume mounting)
+- Jupyter notebooks
 
 ---
 

@@ -35,8 +35,8 @@ stages:
     deps:
     - path: conf/a2c_trainer.yaml
       hash: md5
-      md5: d3a7eb3757b53a5d129df56879402124
-      size: 1066
+      md5: 0898f039b4652ce29ee669e74ec71893
+      size: 1199
     - path: conf/data/default_data.yaml
       hash: md5
       md5: 95e7bab3de8d56efe1ce1158390cce03
@@ -73,8 +73,8 @@ stages:
       size: 22861
     - path: pipelines/rl_agent_policy/trainer.py
       hash: md5
-      md5: 1895f36b5443ed3e6b25d537799fc243
-      size: 13496
+      md5: 59d840c2fbbbd44b5a31dd3afc86a01d
+      size: 13843
     params:
       conf/a2c_trainer.yaml:
         env.initial_cash: 10000
@@ -91,9 +91,9 @@ stages:
     outs:
     - path: outputs/model
       hash: md5
-      md5: ede3321a6e82c2a71eff2d6e96bd7b4c.dir
-      size: 8580813
-      nfiles: 144
+      md5: d12b7c729106ce7f857d3065feb6b7dd.dir
+      size: 9281581
+      nfiles: 156
   evaluate:
     cmd: python pipelines/dvc/evaluate.py --checkpoint 
       outputs/model/checkpoints/latest --config conf/a2c_trainer.yaml --output 
@@ -101,26 +101,26 @@ stages:
     deps:
     - path: conf/a2c_trainer.yaml
       hash: md5
-      md5: d3a7eb3757b53a5d129df56879402124
-      size: 1066
+      md5: 0898f039b4652ce29ee669e74ec71893
+      size: 1199
     - path: outputs/model
       hash: md5
-      md5: ede3321a6e82c2a71eff2d6e96bd7b4c.dir
-      size: 8580813
-      nfiles: 144
+      md5: d12b7c729106ce7f857d3065feb6b7dd.dir
+      size: 9281581
+      nfiles: 156
     - path: pipelines/dvc/evaluate.py
       hash: md5
-      md5: 191206c51299e9ee5c07c9e4f7a6f56b
-      size: 13305
+      md5: 5b7ad97014aa038dfd9b9e565b9e9b66
+      size: 13628
     params:
       conf/a2c_trainer.yaml:
         validation.validation_size: 365
     outs:
     - path: outputs/evaluation/metrics.json
       hash: md5
-      md5: a9901016c5febfafb35140a19d72df30
-      size: 512
+      md5: 4f7234187ed2923b68d326d99f34dbd8
+      size: 507
     - path: outputs/evaluation/performance.csv
       hash: md5
-      md5: a097a373f8b909626ac8ab2c81977113
-      size: 52862
+      md5: c311e4b68449f904da0d6aa56a174ca7
+      size: 52682

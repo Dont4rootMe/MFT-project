@@ -194,13 +194,19 @@ def evaluate_model(
     feed = DataFeed(feature_streams)
     feed.compile()
     
+    # Get action scheme parameters from config
+    action_cfg = cfg.get("action_scheme", {})
+    trade_sizes = action_cfg.get("trade_sizes", [0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4])
+    min_order_abs = action_cfg.get("min_order_abs", 0)
+    min_order_pct = action_cfg.get("min_order_pct", 0)
+    
     action_scheme = action_api.get(
-        'simple',
+        action_cfg.get("name", "simple"),
         portfolio=portfolio,
         criteria=[None],
-        trade_sizes=[0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4],
-        min_order_abs=0,
-        min_order_pct=0,
+        trade_sizes=list(trade_sizes),
+        min_order_abs=min_order_abs,
+        min_order_pct=min_order_pct,
     )
     
     reward_cfg = cfg.get("reward_scheme")

@@ -41,6 +41,10 @@ validation:
 
 action_scheme:
   name: simple
+  trade_sizes: [0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4]  # Position sizes for buy/sell actions
+  min_order_abs: 0
+  min_order_pct: 0
+
 reward_scheme:
   name: simple
 

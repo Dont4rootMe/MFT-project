@@ -1,0 +1,93 @@
+# Git
+.git
+.gitignore
+
+# DVC
+.dvc
+*.dvc
+dvc.lock
+dvc.yaml
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+*.egg
+.eggs
+dist
+build
+*.whl
+
+# Virtual environments
+venv
+.venv
+env
+.env
+*.env
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# Data files (use volume mounting instead)
+data/
+datasets/
+*.csv
+*.pkl
+*.parquet
+!requirements.txt
+
+# Cache
+cache/
+.cache
+*.cache
+.pytest_cache
+
+# Logs
+*.log
+logs/
+
+# Outputs (except model checkpoint)
+outputs/2025-*
+outputs/2026-*
+outputs/evaluation/
+outputs/model/checkpoints/[0-9]*
+
+# Large files
+*.pt
+*.pth
+*.onnx
+*.h5
+*.hdf5
+!outputs/model/checkpoints/latest/**/*.pt
+
+# Documentation
+*.md
+!README.md
+notebooks/
+
+# Tests
+tests/
+*_test.py
+test_*.py
+
+# Other
+.DS_Store
+*.bak
+*.tmp
+*.temp
+Thumbs.db
+
