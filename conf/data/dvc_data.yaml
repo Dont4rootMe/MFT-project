@@ -1,0 +1,13 @@
+# DVC Pipeline Data Configuration
+# This file defines what data to fetch during the prepare stage
+
+symbols:
+  - LINK
+
+time_freq: "1d"
+main_currency: "USDT"
+exchange: "Binance"
+
+# Number of days of historical data to fetch (0 = all available)
+days: 1000
+

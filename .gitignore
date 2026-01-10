@@ -1,5 +1,12 @@
 .snapshots
-data/*
+# Data directories - actual data tracked by DVC
+/data/raw/
+/data/prepared/
+/data/processed/
+# Allow DVC tracking files
+!data/*.dvc
+!data/.gitignore
+!data/raw.dvc
 cache/
 optuna/*
 .DS_Store
@@ -52,6 +59,7 @@ __pycache__/
 *.log.*
 *.pid
 *.lock
+!dvc.lock
 *.pid.lock
 *.swp
 *.swo
@@ -112,4 +120,11 @@ examples/training_logs
 
 # virtual environment
 venv
-outputs/
+
+# Training outputs - actual models tracked by DVC
+# Ignore contents of outputs but track DVC files
+outputs/*
+!outputs/.gitignore
+!outputs/model.dvc
+# Ignore model contents (tracked by DVC)
+outputs/model/

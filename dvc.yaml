@@ -1,0 +1,83 @@
+# DVC Pipeline for MFT-project
+# This file defines the data science pipeline stages:
+# prepare -> train -> evaluate
+
+stages:
+  # Stage 1: Data Preparation
+  # Fetches and prepares raw cryptocurrency data from exchange APIs
+  # The prepare stage outputs to data/prepared/ to avoid conflict with data/raw (tracked separately)
+  prepare:
+    cmd: python pipelines/dvc/prepare.py --config conf/data/dvc_data.yaml --output data/prepared
+    deps:
+      - pipelines/dvc/prepare.py
+      - scripts/fetch_currency.py
+      - conf/data/dvc_data.yaml
+    outs:
+      - data/prepared:
+          cache: true
+    params:
+      - conf/data/dvc_data.yaml:
+          - symbols
+          - time_freq
+          - main_currency
+          - days
+
+  # Stage 2: Model Training
+  # Trains the A2C agent using reinforcement learning
+  train:
+    cmd: python pipelines/dvc/train.py --config a2c_trainer --output outputs/model
+    deps:
+      - pipelines/dvc/train.py
+      - pipelines/rl_agent_policy/trainer.py
+      - pipelines/rl_agent_policy/train/a2c.py
+      - pipelines/rl_agent_policy/data/data_parser.py
+      - pipelines/rl_agent_policy/models/
+      - conf/a2c_trainer.yaml
+      - conf/data/default_data.yaml
+      - conf/model/a2c_model.yaml
+      - conf/train/a2c_train.yaml
+      - data/prepared  # Depend on prepared data from prepare stage
+    outs:
+      - outputs/model:
+          cache: true
+          persist: true
+    params:
+      - conf/a2c_trainer.yaml:
+          - seed
+          - env.window_size
+          - env.initial_cash
+          - env.max_episode_length
+          - validation.validation_size
+      - conf/train/a2c_train.yaml:
+          - approach.lr
+          - approach.gamma
+          - approach.entropy_coef
+          - approach.n_steps
+          - approach.total_timesteps
+
+  # Stage 3: Model Evaluation
+  # Evaluates the trained model and generates metrics
+  evaluate:
+    cmd: python pipelines/dvc/evaluate.py --checkpoint outputs/model/checkpoints/latest --config conf/a2c_trainer.yaml --output outputs/evaluation
+    deps:
+      - pipelines/dvc/evaluate.py
+      - outputs/model
+      - conf/a2c_trainer.yaml
+    outs:
+      - outputs/evaluation/performance.csv:
+          cache: true
+    metrics:
+      - outputs/evaluation/metrics.json:
+          cache: false
+    params:
+      - conf/a2c_trainer.yaml:
+          - validation.validation_size
+
+# Plot definitions for DVC plots
+plots:
+  - outputs/evaluation/performance.csv:
+      x: step
+      y:
+        outputs/evaluation/performance.csv: [net_worth]
+      title: "Portfolio Net Worth Over Time"
+

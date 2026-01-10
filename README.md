@@ -312,11 +312,23 @@
 
 ### Установка зависимостей:
 ```bash
-
 micromamba create -n mft_env python=3.11.13
 micromamba activate mft_env
 
 pip install -r requirements.txt
+```
+
+### Клонирование репозитория с данными и моделями:
+```bash
+# Клонирование репозитория
+git clone <repository-url>
+cd MFT-project
+
+# Загрузка данных и моделей из DVC хранилища
+dvc pull
+
+# Воспроизведение полного пайплайна (опционально)
+dvc repro
 ```
 
 ### Обучение A2C агента:
@@ -326,6 +338,9 @@ python pipelines/rl_agent_policy/trainer.py
 
 # Или через accelerate
 bash train.sh
+
+# Или через DVC пайплайн (рекомендуется)
+dvc repro
 ```
 
 ### Конфигурация:
@@ -334,6 +349,106 @@ bash train.sh
 - `conf/data/` - Параметры данных и признаков
 - `conf/model/` - Архитектура модели
 - `conf/train/` - Параметры обучения
+
+---
+
+## 📦 DVC: Версионирование данных и моделей
+
+Проект использует **DVC (Data Version Control)** для версионирования больших файлов данных и моделей, которые не подходят для хранения в Git.
+
+### Структура хранения данных и моделей
+
+| Тип | Расположение | Описание |
+|-----|-------------|----------|
+| **Сырые данные** | `data/raw/` | Исторические OHLCV данные криптовалют |
+| **Подготовленные данные** | `data/prepared/` | Данные после препроцессинга (output пайплайна) |
+| **Модели** | `outputs/model/` | Обученные модели и чекпоинты |
+| **Результаты оценки** | `outputs/evaluation/` | Метрики и результаты валидации |
+| **DVC Remote** | `/mnt/virtual_ai0001071-01239_SR006-nfs2/afedorov/dvc-storage/mft-project` | Удалённое хранилище DVC |
+
+### DVC Пайплайн
+
+Проект определяет ML пайплайн в файле `dvc.yaml` с тремя стадиями:
+
+```
++---------+      +-------+      +----------+
+| prepare | ---> | train | ---> | evaluate |
++---------+      +-------+      +----------+
+```
+
+| Стадия | Описание | Команда |
+|--------|----------|---------|
+| **prepare** | Загрузка и подготовка данных с бирж | `python pipelines/dvc/prepare.py` |
+| **train** | Обучение A2C агента | `python pipelines/dvc/train.py` |
+| **evaluate** | Оценка модели и генерация метрик | `python pipelines/dvc/evaluate.py` |
+
+### Команды DVC
+
+```bash
+# Загрузка данных и моделей из удалённого хранилища
+dvc pull
+
+# Запуск полного пайплайна (prepare -> train -> evaluate)
+dvc repro
+
+# Запуск отдельной стадии
+dvc repro train
+
+# Отправка данных и моделей в удалённое хранилище
+dvc push
+
+# Проверка статуса пайплайна
+dvc status
+
+# Просмотр DAG пайплайна
+dvc dag
+
+# Просмотр метрик
+dvc metrics show
+```
+
+### Версионирование данных
+
+```bash
+# Добавление новых данных под контроль DVC
+dvc add data/raw
+
+# Коммит изменений в Git (DVC файлы)
+git add data/raw.dvc data/.gitignore
+git commit -m "Update raw data"
+
+# Отправка данных в удалённое хранилище
+dvc push
+```
+
+### Переключение между версиями
+
+```bash
+# Переключение на конкретную версию (например, по git тегу или коммиту)
+git checkout v1.0.0
+dvc checkout
+
+# Или одной командой
+git checkout v1.0.0 && dvc pull
+```
+
+### Настройка удалённого хранилища
+
+Текущее хранилище (локальное):
+```bash
+dvc remote list
+# local_storage /mnt/virtual_ai0001071-01239_SR006-nfs2/afedorov/dvc-storage/mft-project
+```
+
+Для настройки другого хранилища (например, S3):
+```bash
+# Добавление S3 хранилища
+dvc remote add -d s3_storage s3://bucket-name/path
+
+# Конфигурация AWS credentials
+dvc remote modify s3_storage access_key_id <access_key>
+dvc remote modify s3_storage secret_access_key <secret_key>
+```
 
 ---
 
@@ -376,5 +491,5 @@ Apache License 2.0
 
 ---
 
-**Последнее обновление**: Октябрь 2025
+**Последнее обновление**: Январь 2026
 

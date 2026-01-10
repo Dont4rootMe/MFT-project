@@ -1,0 +1,4 @@
+[core]
+    remote = local_storage
+['remote "local_storage"']
+    url = /mnt/virtual_ai0001071-01239_SR006-nfs2/afedorov/dvc-storage/mft-project
