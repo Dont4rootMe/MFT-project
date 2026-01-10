@@ -347,7 +347,9 @@ class A2CTrainer:
             json.dump({"step": step, "episode": episode}, f)
 
         latest_dir = self.ckpt_root / "latest"
-        if latest_dir.exists():
+        if latest_dir.is_symlink():
+            latest_dir.unlink()
+        elif latest_dir.exists():
             shutil.rmtree(latest_dir)
         shutil.copytree(ckpt_dir, latest_dir)
 

@@ -23,6 +23,7 @@ import torch
 from omegaconf import OmegaConf
 from hydra import initialize_config_dir, compose
 from hydra.utils import instantiate
+import mlflow
 
 import tensortrade.env.default as default
 from tensortrade.env.default import actions as action_api, rewards as reward_api
@@ -304,6 +305,18 @@ def main():
         default='metrics.json',
         help='Name of metrics output file'
     )
+    parser.add_argument(
+        '--experiment',
+        type=str,
+        default='mft-a2c-training',
+        help='MLflow experiment name'
+    )
+    parser.add_argument(
+        '--log-to-mlflow',
+        action='store_true',
+        default=True,
+        help='Log metrics to MLflow'
+    )
     
     args = parser.parse_args()
     
@@ -313,6 +326,47 @@ def main():
         output_dir=args.output,
         metrics_file=args.metrics_file
     )
+    
+    # Log metrics to MLflow if enabled
+    if args.log_to_mlflow:
+        mlflow.set_experiment(args.experiment)
+        
+        # Try to find the most recent run to log to, or create a new one
+        try:
+            # Get the most recent run from the experiment
+            experiment = mlflow.get_experiment_by_name(args.experiment)
+            if experiment:
+                runs = mlflow.search_runs(
+                    experiment_ids=[experiment.experiment_id],
+                    order_by=["start_time DESC"],
+                    max_results=1
+                )
+                if len(runs) > 0:
+                    run_id = runs.iloc[0]['run_id']
+                    with mlflow.start_run(run_id=run_id):
+                        # Log evaluation metrics with 'eval_' prefix
+                        for key, value in metrics.items():
+                            if isinstance(value, (int, float)) and not np.isnan(value) and not np.isinf(value):
+                                mlflow.log_metric(f"eval_{key}", value)
+                        
+                        # Log evaluation artifacts
+                        metrics_path = os.path.join(args.output, args.metrics_file)
+                        if os.path.exists(metrics_path):
+                            mlflow.log_artifact(metrics_path, "evaluation")
+                        
+                        perf_path = os.path.join(args.output, 'performance.csv')
+                        if os.path.exists(perf_path):
+                            mlflow.log_artifact(perf_path, "evaluation")
+                        
+                        print(f"   ✓ Logged metrics to MLflow run: {run_id[:8]}")
+        except Exception as e:
+            print(f"   ⚠ Could not log to existing MLflow run: {e}")
+            # Create a new run for evaluation
+            with mlflow.start_run(run_name=f"evaluation_{os.path.basename(args.checkpoint)}"):
+                for key, value in metrics.items():
+                    if isinstance(value, (int, float)) and not np.isnan(value) and not np.isinf(value):
+                        mlflow.log_metric(f"eval_{key}", value)
+                print(f"   ✓ Created new MLflow run for evaluation")
     
     print(f"\n📈 Evaluation Results:")
     for key, value in metrics.items():

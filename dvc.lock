@@ -56,8 +56,8 @@ stages:
       nfiles: 2
     - path: pipelines/dvc/train.py
       hash: md5
-      md5: e21026ce2c2a87179482472d7639db45
-      size: 3917
+      md5: 58ae67d3b8e3d51840365f689842e274
+      size: 12068
     - path: pipelines/rl_agent_policy/data/data_parser.py
       hash: md5
       md5: 57cac10177b61b105d564b81fbb8f985
@@ -69,8 +69,8 @@ stages:
       nfiles: 26
     - path: pipelines/rl_agent_policy/train/a2c.py
       hash: md5
-      md5: 11da45e67a95e6ba45ec95484639c7c1
-      size: 22791
+      md5: 20ccc5a3b46d6b31fe13f45184ecf7e7
+      size: 22861
     - path: pipelines/rl_agent_policy/trainer.py
       hash: md5
       md5: 1895f36b5443ed3e6b25d537799fc243
@@ -91,9 +91,9 @@ stages:
     outs:
     - path: outputs/model
       hash: md5
-      md5: 9b5ea961baee6a813cb90903197379cc.dir
-      size: 7880387
-      nfiles: 132
+      md5: ede3321a6e82c2a71eff2d6e96bd7b4c.dir
+      size: 8580813
+      nfiles: 144
   evaluate:
     cmd: python pipelines/dvc/evaluate.py --checkpoint 
       outputs/model/checkpoints/latest --config conf/a2c_trainer.yaml --output 
@@ -105,22 +105,22 @@ stages:
       size: 1066
     - path: outputs/model
       hash: md5
-      md5: 9b5ea961baee6a813cb90903197379cc.dir
-      size: 7880387
-      nfiles: 132
+      md5: ede3321a6e82c2a71eff2d6e96bd7b4c.dir
+      size: 8580813
+      nfiles: 144
     - path: pipelines/dvc/evaluate.py
       hash: md5
-      md5: b64cc9e116478e779a204056bc10bbf9
-      size: 10796
+      md5: 191206c51299e9ee5c07c9e4f7a6f56b
+      size: 13305
     params:
       conf/a2c_trainer.yaml:
         validation.validation_size: 365
     outs:
     - path: outputs/evaluation/metrics.json
       hash: md5
-      md5: c93cd7cd87ca0bf1a1e26b33e3503bce
-      size: 506
+      md5: a9901016c5febfafb35140a19d72df30
+      size: 512
     - path: outputs/evaluation/performance.csv
       hash: md5
-      md5: 0a9de29e949029b26e55f923340c7191
-      size: 45381
+      md5: a097a373f8b909626ac8ab2c81977113
+      size: 52862

@@ -121,6 +121,10 @@ examples/training_logs
 # virtual environment
 venv
 
+# MLflow local tracking
+mlruns/
+mlartifacts/
+
 # Training outputs - actual models tracked by DVC
 # Ignore contents of outputs but track DVC files
 outputs/*

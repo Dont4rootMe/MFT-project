@@ -297,6 +297,7 @@
 - **Hydra** - Управление конфигурациями
 - **OmegaConf** - Конфигурационные файлы
 - **DVC** - Версионирование данных и моделей, ML пайплайны
+- **MLflow** - Трекинг экспериментов, логирование метрик и артефактов
 
 ### Visualization & Analysis:
 - **Plotly** - Интерактивные графики
@@ -480,6 +481,96 @@ dvc remote add -d ssh_storage ssh://user@host/path
 | `dvc.lock` | Хэши версий данных и параметров |
 | `data/raw.dvc` | Трекинг сырых данных |
 | `.dvc/config` | Конфигурация DVC (remote storage) |
+
+---
+
+## 📊 MLflow: Трекинг экспериментов
+
+Проект использует **MLflow** для трекинга экспериментов, логирования параметров, метрик и артефактов.
+
+### Запуск MLflow UI
+
+```bash
+# Запуск локального MLflow UI (по умолчанию на порту 5000)
+mlflow ui --port 5000
+
+# Открыть в браузере: http://localhost:5000
+```
+
+### Что логируется в MLflow
+
+| Категория | Данные |
+|-----------|--------|
+| **Параметры** | Конфигурация обучения (lr, batch_size, epochs, и т.д.) |
+| **Метрики** | sharpe_ratio, max_drawdown, win_rate, total_return, и т.д. |
+| **Артефакты** | Чекпоинты модели, dvc.lock, конфиги, графики валидации |
+| **Теги** | dvc_data_hash, git_commit, pipeline, status |
+
+### Интеграция DVC + MLflow
+
+Каждый MLflow run автоматически сохраняет:
+- `dvc_data_hash` - хэш данных из DVC для воспроизводимости
+- `dvc.lock` - файл блокировки DVC как артефакт
+- `git_commit` - хэш текущего коммита
+
+### Команды MLflow
+
+```bash
+# Просмотр экспериментов
+mlflow experiments search
+
+# Просмотр runs в эксперименте
+mlflow runs list --experiment-name mft-a2c-training
+
+# Загрузка модели из run
+mlflow artifacts download --run-id <RUN_ID> --dst-path ./downloaded_model
+```
+
+### Запуск обучения с MLflow
+
+```bash
+# Через DVC пайплайн (рекомендуется)
+dvc repro
+
+# Напрямую с кастомным экспериментом
+python pipelines/dvc/train.py --experiment my-experiment --run-name experiment-v1
+```
+
+### Настройка удалённого MLflow сервера (опционально)
+
+Для командной работы можно настроить удалённый MLflow tracking server:
+
+```bash
+# Установка переменных окружения
+export MLFLOW_TRACKING_URI=http://mlflow-server:5000
+
+# Или с PostgreSQL + S3 backend
+export MLFLOW_TRACKING_URI=postgresql://user:pass@host:5432/mlflow
+export MLFLOW_S3_ENDPOINT_URL=http://minio:9000
+export AWS_ACCESS_KEY_ID=minio_access_key
+export AWS_SECRET_ACCESS_KEY=minio_secret_key
+```
+
+### Структура MLflow
+
+```
+mlruns/
+├── 0/                          # Default experiment
+├── <experiment_id>/            # Custom experiment
+│   ├── <run_id>/
+│   │   ├── artifacts/
+│   │   │   ├── config/        # Конфигурационные файлы
+│   │   │   ├── dvc/           # dvc.lock
+│   │   │   ├── evaluation/    # Метрики и результаты
+│   │   │   ├── logs/          # Логи обучения
+│   │   │   ├── model/         # Чекпоинты модели
+│   │   │   └── plots/         # Графики валидации
+│   │   ├── metrics/           # Метрики (time-series)
+│   │   ├── params/            # Параметры
+│   │   └── tags/              # Теги (dvc_hash, git_commit)
+│   └── meta.yaml
+└── models/                     # Зарегистрированные модели
+```
 
 ---
 
