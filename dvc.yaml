@@ -49,11 +49,11 @@ stages:
           - env.max_episode_length
           - validation.validation_size
       - conf/train/a2c_train.yaml:
-          - approach.lr
-          - approach.gamma
-          - approach.entropy_coef
-          - approach.n_steps
-          - approach.total_timesteps
+          - approach.learning_rate
+          - approach.discount_factor
+          - approach.entropy_c
+          - approach.n_episodes
+          - approach.batch_size
 
   # Stage 3: Model Evaluation
   # Evaluates the trained model and generates metrics

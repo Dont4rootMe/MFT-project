@@ -70,24 +70,33 @@ def train_model(
     if result.returncode != 0:
         raise RuntimeError(f"Training failed with return code {result.returncode}")
     
-    # Copy the latest checkpoint to a standard location for DVC
+    # Find the latest checkpoint and create a 'latest' symlink for evaluate stage
     checkpoints_dir = os.path.join(output_dir, 'checkpoints')
-    latest_checkpoint = os.path.join(checkpoints_dir, 'latest')
     
-    if os.path.exists(latest_checkpoint):
-        # Copy to outputs/model for DVC tracking
-        dvc_model_dir = os.path.join(project_root, 'outputs', 'model')
-        os.makedirs(dvc_model_dir, exist_ok=True)
+    if os.path.exists(checkpoints_dir):
+        # Find all numbered checkpoint directories
+        checkpoint_dirs = []
+        for d in os.listdir(checkpoints_dir):
+            dir_path = os.path.join(checkpoints_dir, d)
+            if os.path.isdir(dir_path) and d.isdigit():
+                checkpoint_dirs.append((int(d), dir_path))
         
-        # Copy checkpoint
-        dvc_checkpoint_dir = os.path.join(dvc_model_dir, 'checkpoints', 'latest')
-        if os.path.exists(dvc_checkpoint_dir):
-            shutil.rmtree(dvc_checkpoint_dir)
-        
-        os.makedirs(os.path.dirname(dvc_checkpoint_dir), exist_ok=True)
-        shutil.copytree(latest_checkpoint, dvc_checkpoint_dir)
-        
-        print(f"   ✓ Model checkpoint copied to {dvc_checkpoint_dir}")
+        if checkpoint_dirs:
+            # Sort by number and get the latest
+            checkpoint_dirs.sort(key=lambda x: x[0], reverse=True)
+            latest_num, latest_path = checkpoint_dirs[0]
+            
+            # Create 'latest' symlink
+            latest_link = os.path.join(checkpoints_dir, 'latest')
+            if os.path.islink(latest_link):
+                os.remove(latest_link)
+            elif os.path.isdir(latest_link):
+                shutil.rmtree(latest_link)
+            elif os.path.exists(latest_link):
+                os.remove(latest_link)
+            
+            os.symlink(str(latest_num), latest_link)
+            print(f"   ✓ Created 'latest' symlink -> {latest_num}")
     
     print(f"✅ Training complete!")
 

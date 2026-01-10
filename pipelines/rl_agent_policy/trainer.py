@@ -335,7 +335,7 @@ def main(cfg: DictConfig) -> None:
         done = terminated or truncated
         total_reward += reward
 
-    results_dir = Path(to_absolute_path(train_config.output_dir))
+    results_dir = Path(to_absolute_path(cfg.output_dir))
     results_dir.mkdir(parents=True, exist_ok=True)
     perf = pd.DataFrame.from_dict(valid_env.action_scheme.portfolio.performance, orient="index")
     perf.to_csv(results_dir / "evaluation.csv")

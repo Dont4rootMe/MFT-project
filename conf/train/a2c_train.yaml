@@ -11,9 +11,9 @@ approach:
   entropy_c: 0.0001
   memory_capacity: 1000
   n_steps: null
-  n_episodes: 100000
-  validate_every_episodes: 500
-  checkpoint_every_episodes: 1000
+  n_episodes: 10
+  validate_every_episodes: 3
+  checkpoint_every_episodes: 3
   resume_path: null
   gradient_accumulation_steps: 2  # Number of steps to accumulate gradients before updating
   

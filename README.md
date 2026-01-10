@@ -296,6 +296,7 @@
 ### Configuration & Experiment Management:
 - **Hydra** - Управление конфигурациями
 - **OmegaConf** - Конфигурационные файлы
+- **DVC** - Версионирование данных и моделей, ML пайплайны
 
 ### Visualization & Analysis:
 - **Plotly** - Интерактивные графики
@@ -358,13 +359,13 @@ dvc repro
 
 ### Структура хранения данных и моделей
 
-| Тип | Расположение | Описание |
-|-----|-------------|----------|
-| **Сырые данные** | `data/raw/` | Исторические OHLCV данные криптовалют |
-| **Подготовленные данные** | `data/prepared/` | Данные после препроцессинга (output пайплайна) |
-| **Модели** | `outputs/model/` | Обученные модели и чекпоинты |
-| **Результаты оценки** | `outputs/evaluation/` | Метрики и результаты валидации |
-| **DVC Remote** | `/mnt/virtual_ai0001071-01239_SR006-nfs2/afedorov/dvc-storage/mft-project` | Удалённое хранилище DVC |
+| Тип | Расположение | Описание | DVC Tracking |
+|-----|-------------|----------|--------------|
+| **Сырые данные** | `data/raw/` | Исторические OHLCV данные криптовалют | `data/raw.dvc` |
+| **Подготовленные данные** | `data/prepared/` | Данные после препроцессинга | Pipeline output |
+| **Модели** | `outputs/model/` | Обученные модели и чекпоинты | Pipeline output |
+| **Результаты оценки** | `outputs/evaluation/` | Метрики и результаты валидации | Pipeline output |
+| **DVC Remote** | Настраивается в `.dvc/config` | Удалённое хранилище DVC | - |
 
 ### DVC Пайплайн
 
@@ -376,11 +377,26 @@ dvc repro
 +---------+      +-------+      +----------+
 ```
 
-| Стадия | Описание | Команда |
-|--------|----------|---------|
-| **prepare** | Загрузка и подготовка данных с бирж | `python pipelines/dvc/prepare.py` |
-| **train** | Обучение A2C агента | `python pipelines/dvc/train.py` |
-| **evaluate** | Оценка модели и генерация метрик | `python pipelines/dvc/evaluate.py` |
+| Стадия | Описание | Скрипт | Outputs |
+|--------|----------|--------|---------|
+| **prepare** | Загрузка и подготовка данных с бирж | `pipelines/dvc/prepare.py` | `data/prepared/` |
+| **train** | Обучение A2C агента | `pipelines/dvc/train.py` | `outputs/model/` |
+| **evaluate** | Оценка модели и генерация метрик | `pipelines/dvc/evaluate.py` | `outputs/evaluation/metrics.json` |
+
+### Метрики модели
+
+После выполнения `dvc repro` или `dvc metrics show` доступны следующие метрики:
+
+| Метрика | Описание |
+|---------|----------|
+| `sharpe_ratio` | Коэффициент Шарпа (риск-доходность) |
+| `max_drawdown` | Максимальная просадка портфеля |
+| `win_rate` | Доля прибыльных сделок |
+| `total_return` | Общая доходность |
+| `profit_factor` | Отношение прибыли к убыткам |
+| `calmar_ratio` | Коэффициент Кальмара |
+| `sortino_ratio` | Коэффициент Сортино |
+| `final_net_worth` | Итоговая стоимость портфеля |
 
 ### Команды DVC
 
@@ -434,21 +450,36 @@ git checkout v1.0.0 && dvc pull
 
 ### Настройка удалённого хранилища
 
-Текущее хранилище (локальное):
+Просмотр текущего хранилища:
 ```bash
 dvc remote list
-# local_storage /mnt/virtual_ai0001071-01239_SR006-nfs2/afedorov/dvc-storage/mft-project
 ```
 
-Для настройки другого хранилища (например, S3):
+Примеры настройки различных хранилищ:
 ```bash
-# Добавление S3 хранилища
-dvc remote add -d s3_storage s3://bucket-name/path
+# Локальное хранилище (для разработки)
+dvc remote add -d local_storage /path/to/storage
 
-# Конфигурация AWS credentials
+# Amazon S3
+dvc remote add -d s3_storage s3://bucket-name/path
 dvc remote modify s3_storage access_key_id <access_key>
 dvc remote modify s3_storage secret_access_key <secret_key>
+
+# Google Cloud Storage
+dvc remote add -d gcs_storage gs://bucket-name/path
+
+# SSH/SFTP
+dvc remote add -d ssh_storage ssh://user@host/path
 ```
+
+### Файлы DVC
+
+| Файл | Описание |
+|------|----------|
+| `dvc.yaml` | Определение пайплайна (стадии, зависимости, выходы) |
+| `dvc.lock` | Хэши версий данных и параметров |
+| `data/raw.dvc` | Трекинг сырых данных |
+| `.dvc/config` | Конфигурация DVC (remote storage) |
 
 ---
 

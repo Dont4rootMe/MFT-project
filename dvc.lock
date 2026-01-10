@@ -1,0 +1,126 @@
+schema: '2.0'
+stages:
+  prepare:
+    cmd: python pipelines/dvc/prepare.py --config conf/data/dvc_data.yaml 
+      --output data/prepared
+    deps:
+    - path: conf/data/dvc_data.yaml
+      hash: md5
+      md5: e1711e2a9cc9b814e26a10d6f34fbbca
+      size: 254
+    - path: pipelines/dvc/prepare.py
+      hash: md5
+      md5: f6a947754418d805d46bb848db43cad4
+      size: 3230
+    - path: scripts/fetch_currency.py
+      hash: md5
+      md5: 05f0712292bab58c95bedf61599a2675
+      size: 5762
+    params:
+      conf/data/dvc_data.yaml:
+        days: 1000
+        main_currency: USDT
+        symbols:
+        - LINK
+        time_freq: 1d
+    outs:
+    - path: data/prepared
+      hash: md5
+      md5: 6c3b312da0f52515996f0c4b15e160be.dir
+      size: 155143
+      nfiles: 2
+  train:
+    cmd: python pipelines/dvc/train.py --config a2c_trainer --output 
+      outputs/model
+    deps:
+    - path: conf/a2c_trainer.yaml
+      hash: md5
+      md5: d3a7eb3757b53a5d129df56879402124
+      size: 1066
+    - path: conf/data/default_data.yaml
+      hash: md5
+      md5: 95e7bab3de8d56efe1ce1158390cce03
+      size: 289
+    - path: conf/model/a2c_model.yaml
+      hash: md5
+      md5: b916a4db85e5291892e5a665d87a139e
+      size: 126
+    - path: conf/train/a2c_train.yaml
+      hash: md5
+      md5: ecd584d8624d936d41c09e10856e8421
+      size: 501
+    - path: data/prepared
+      hash: md5
+      md5: 6c3b312da0f52515996f0c4b15e160be.dir
+      size: 155143
+      nfiles: 2
+    - path: pipelines/dvc/train.py
+      hash: md5
+      md5: e21026ce2c2a87179482472d7639db45
+      size: 3917
+    - path: pipelines/rl_agent_policy/data/data_parser.py
+      hash: md5
+      md5: 57cac10177b61b105d564b81fbb8f985
+      size: 13934
+    - path: pipelines/rl_agent_policy/models/
+      hash: md5
+      md5: 2493813859d4fedadc315c93a2fa623a.dir
+      size: 170455
+      nfiles: 26
+    - path: pipelines/rl_agent_policy/train/a2c.py
+      hash: md5
+      md5: 11da45e67a95e6ba45ec95484639c7c1
+      size: 22791
+    - path: pipelines/rl_agent_policy/trainer.py
+      hash: md5
+      md5: 1895f36b5443ed3e6b25d537799fc243
+      size: 13496
+    params:
+      conf/a2c_trainer.yaml:
+        env.initial_cash: 10000
+        env.max_episode_length: 75
+        env.window_size: 30
+        seed: 42
+        validation.validation_size: 365
+      conf/train/a2c_train.yaml:
+        approach.batch_size: 128
+        approach.discount_factor: 0.9999
+        approach.entropy_c: 0.0001
+        approach.learning_rate: 0.0001
+        approach.n_episodes: 10
+    outs:
+    - path: outputs/model
+      hash: md5
+      md5: 9b5ea961baee6a813cb90903197379cc.dir
+      size: 7880387
+      nfiles: 132
+  evaluate:
+    cmd: python pipelines/dvc/evaluate.py --checkpoint 
+      outputs/model/checkpoints/latest --config conf/a2c_trainer.yaml --output 
+      outputs/evaluation
+    deps:
+    - path: conf/a2c_trainer.yaml
+      hash: md5
+      md5: d3a7eb3757b53a5d129df56879402124
+      size: 1066
+    - path: outputs/model
+      hash: md5
+      md5: 9b5ea961baee6a813cb90903197379cc.dir
+      size: 7880387
+      nfiles: 132
+    - path: pipelines/dvc/evaluate.py
+      hash: md5
+      md5: b64cc9e116478e779a204056bc10bbf9
+      size: 10796
+    params:
+      conf/a2c_trainer.yaml:
+        validation.validation_size: 365
+    outs:
+    - path: outputs/evaluation/metrics.json
+      hash: md5
+      md5: c93cd7cd87ca0bf1a1e26b33e3503bce
+      size: 506
+    - path: outputs/evaluation/performance.csv
+      hash: md5
+      md5: 0a9de29e949029b26e55f923340c7191
+      size: 45381

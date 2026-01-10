@@ -21,6 +21,7 @@ import pandas as pd
 import numpy as np
 import torch
 from omegaconf import OmegaConf
+from hydra import initialize_config_dir, compose
 from hydra.utils import instantiate
 
 import tensortrade.env.default as default
@@ -123,8 +124,12 @@ def evaluate_model(
     print(f"   Checkpoint: {checkpoint_path}")
     print(f"   Config: {config_path}")
     
-    # Load configuration
-    cfg = OmegaConf.load(config_path)
+    # Load configuration using Hydra compose API to resolve defaults
+    config_dir = str(project_root / 'conf')
+    config_name = Path(config_path).stem  # e.g., 'a2c_trainer'
+    
+    with initialize_config_dir(version_base=None, config_dir=config_dir):
+        cfg = compose(config_name=config_name)
     
     # Load data
     data_handler = instantiate(cfg.data)
@@ -140,6 +145,12 @@ def evaluate_model(
     valid_df = data.iloc[split_idx:].reset_index(drop=True).copy()
     
     print(f"   Validation size: {len(valid_df)} periods")
+    
+    # Compute and set input shape for the model
+    valid_features = valid_df.drop(columns=["date"], errors="ignore").shape[1]
+    input_shape = [valid_features, cfg.env.window_size]
+    OmegaConf.set_struct(cfg.model.shared_network, False)
+    cfg.model.shared_network.input_shape = input_shape
     
     # Build environment
     assets = cfg.get("assets") or data_handler.symbols
@@ -212,7 +223,10 @@ def evaluate_model(
     state_path = os.path.join(checkpoint_path, 'model', 'state.pt')
     if os.path.exists(state_path):
         state_dict = torch.load(state_path, map_location='cpu')
-        agent.network.load_state_dict(state_dict)
+        # Load the three components: shared network, actor head, critic head
+        agent.shared_network.load_state_dict(state_dict['shared'])
+        agent.actor_head.load_state_dict(state_dict['actor'])
+        agent.critic_head.load_state_dict(state_dict['critic'])
         print(f"   ✓ Model loaded successfully")
     else:
         print(f"   ⚠ No checkpoint found, using random weights")
