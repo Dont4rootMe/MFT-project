@@ -1,0 +1,35 @@
+{
+  "window": [
+    {"open": 13.50, "high": 13.80, "low": 13.20, "close": 13.65, "volume": 5000000},
+    {"open": 13.65, "high": 14.00, "low": 13.50, "close": 13.90, "volume": 5500000},
+    {"open": 13.90, "high": 14.20, "low": 13.70, "close": 14.10, "volume": 6000000},
+    {"open": 14.10, "high": 14.50, "low": 14.00, "close": 14.35, "volume": 7000000},
+    {"open": 14.35, "high": 14.60, "low": 14.10, "close": 14.25, "volume": 5800000},
+    {"open": 14.25, "high": 14.40, "low": 13.90, "close": 14.00, "volume": 5200000},
+    {"open": 14.00, "high": 14.30, "low": 13.80, "close": 14.20, "volume": 4800000},
+    {"open": 14.20, "high": 14.50, "low": 14.10, "close": 14.40, "volume": 5100000},
+    {"open": 14.40, "high": 14.70, "low": 14.30, "close": 14.55, "volume": 5400000},
+    {"open": 14.55, "high": 14.80, "low": 14.40, "close": 14.60, "volume": 5600000},
+    {"open": 14.60, "high": 14.90, "low": 14.50, "close": 14.75, "volume": 6200000},
+    {"open": 14.75, "high": 15.00, "low": 14.60, "close": 14.85, "volume": 6800000},
+    {"open": 14.85, "high": 15.10, "low": 14.70, "close": 14.95, "volume": 7200000},
+    {"open": 14.95, "high": 15.20, "low": 14.80, "close": 15.05, "volume": 7500000},
+    {"open": 15.05, "high": 15.30, "low": 14.90, "close": 15.15, "volume": 7800000},
+    {"open": 15.15, "high": 15.40, "low": 15.00, "close": 15.25, "volume": 8000000},
+    {"open": 15.25, "high": 15.50, "low": 15.10, "close": 15.35, "volume": 8200000},
+    {"open": 15.35, "high": 15.60, "low": 15.20, "close": 15.45, "volume": 8500000},
+    {"open": 15.45, "high": 15.70, "low": 15.30, "close": 15.55, "volume": 8800000},
+    {"open": 15.55, "high": 15.80, "low": 15.40, "close": 15.65, "volume": 9000000},
+    {"open": 15.65, "high": 15.90, "low": 15.50, "close": 15.75, "volume": 9200000},
+    {"open": 15.75, "high": 16.00, "low": 15.60, "close": 15.85, "volume": 9500000},
+    {"open": 15.85, "high": 16.10, "low": 15.70, "close": 15.95, "volume": 9800000},
+    {"open": 15.95, "high": 16.20, "low": 15.80, "close": 16.05, "volume": 10000000},
+    {"open": 16.05, "high": 16.30, "low": 15.90, "close": 16.15, "volume": 10500000},
+    {"open": 16.15, "high": 16.40, "low": 16.00, "close": 16.25, "volume": 11000000},
+    {"open": 16.25, "high": 16.50, "low": 16.10, "close": 16.35, "volume": 11500000},
+    {"open": 16.35, "high": 16.60, "low": 16.20, "close": 16.45, "volume": 12000000},
+    {"open": 16.45, "high": 16.70, "low": 16.30, "close": 16.55, "volume": 12500000},
+    {"open": 16.55, "high": 16.80, "low": 16.40, "close": 16.65, "volume": 13000000}
+  ]
+}
+

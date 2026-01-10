@@ -313,6 +313,32 @@ def main(cfg: DictConfig) -> None:
     if hasattr(cfg, 'seed') and cfg.seed is not None:
         train_config.seed = cfg.seed
     
+    # Create full config dict for checkpoint (all params needed for inference)
+    action_cfg = cfg.get("action_scheme", {})
+    full_config = {
+        "window_size": cfg.env.window_size,
+        "trade_sizes": list(action_cfg.get("trade_sizes", [0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4])),
+        "action_scheme_name": action_cfg.get("name", "simple"),
+        "n_features": train_features,  # From data handler
+        "n_assets": len(assets),
+        "assets": assets,
+        "seed": cfg.get('seed', 42),
+        "max_episode_length": cfg.env.get('max_episode_length', None),
+        "initial_cash": cfg.env.initial_cash,
+        "model": {
+            "backbone": OmegaConf.to_container(cfg.model.backbone, resolve=True) if hasattr(cfg.model, 'backbone') else {},
+        },
+        "train": {
+            "learning_rate": train_config.learning_rate,
+            "discount_factor": train_config.discount_factor,
+            "entropy_c": train_config.entropy_c,
+            "n_steps": train_config.n_steps,
+            "n_episodes": train_config.n_episodes,
+        }
+    }
+    # Calculate n_actions from trade_sizes
+    full_config["n_actions"] = 1 + 2 * len(full_config["trade_sizes"])
+    
     trainer = A2CTrainer(
         agent=agent, 
         train_env=train_env, 
@@ -320,7 +346,8 @@ def main(cfg: DictConfig) -> None:
         output_dir=output_dir, 
         config=train_config,
         max_episode_length=cfg.env.get('max_episode_length', None),
-        use_accelerate=use_accelerate
+        use_accelerate=use_accelerate,
+        full_config=full_config  # Pass full config for checkpoint
     )
     trainer.train()
 

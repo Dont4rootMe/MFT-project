@@ -301,6 +301,7 @@
 
 ### Deployment & Infrastructure:
 - **Docker** - Контейнеризация для воспроизводимого инференса
+- **TorchServe** - REST API для онлайн-инференса в реальном времени
 
 ### Visualization & Analysis:
 - **Plotly** - Интерактивные графики
@@ -374,6 +375,75 @@ docker run -v $(pwd)/data:/data ml-app:v1 batch \
 cat data/pred.json   # Single mode
 head data/preds.csv  # Batch mode
 ```
+
+---
+
+## 💾 Checkpoint: Самодостаточные артефакты
+
+Каждый checkpoint содержит **ВСЁ необходимое** для воспроизведения инференса:
+
+### Структура checkpoint
+
+```
+outputs/model/checkpoints/latest/
+├── model/
+│   └── state.pt           # Веса модели (shared, actor, critic)
+├── trainer/
+│   └── optimizer.pt       # Состояние оптимизатора
+└── meta.json              # Полный конфиг + метаданные
+```
+
+### Содержимое meta.json
+
+```json
+{
+  "step": 1125,
+  "episode": 9,
+  "config": {
+    "window_size": 30,
+    "trade_sizes": [0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4],
+    "n_features": 39,
+    "n_actions": 15,
+    "assets": ["LINK"],
+    "seed": 42,
+    "max_episode_length": 75,
+    "initial_cash": 10000,
+    "train": {
+      "learning_rate": 0.0001,
+      "discount_factor": 0.9999,
+      "n_episodes": 10
+    }
+  }
+}
+```
+
+### Использование checkpoint для инференса
+
+```bash
+# Достаточно указать только путь к checkpoint!
+# Все параметры загружаются автоматически:
+
+# Локальный инференс
+python -m src.predict single \
+    --checkpoint outputs/model/checkpoints/latest \
+    --input_path data.csv \
+    --output_path pred.json
+
+# Экспорт для TorchServe
+python serve/export_model.py --checkpoint outputs/model/checkpoints/latest
+
+# Использование конкретного checkpoint (не latest)
+python -m src.predict single \
+    --checkpoint outputs/2026-01-10/a2c_train/checkpoints/1125 \
+    --input_path data.csv \
+    --output_path pred.json
+```
+
+**Преимущества**:
+- ✅ Нет зависимости от внешних конфигов
+- ✅ Полная воспроизводимость
+- ✅ Можно переносить checkpoint на другую машину
+- ✅ Каждый checkpoint - самодостаточный артефакт
 
 ---
 
@@ -659,7 +729,35 @@ ENTRYPOINT ["python", "-m", "src.predict"]
 
 **Назначение**: Загружает обученную модель и генерирует торговые сигналы.
 
-**Принцип работы**: Модель анализирует скользящее окно последних N периодов (по умолчанию 30) и выдаёт одно торговое решение.
+**Принцип работы**: 
+1. Модель анализирует скользящее окно последних N периодов и выдаёт одно торговое решение
+2. **Все параметры загружаются из checkpoint** - не нужно указывать конфиги вручную!
+
+#### Конфигурация из checkpoint
+
+Checkpoint содержит полный конфиг для воспроизведения:
+```json
+{
+  "step": 1125,
+  "episode": 9,
+  "config": {
+    "window_size": 30,
+    "trade_sizes": [0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4],
+    "n_features": 39,
+    "n_actions": 15,
+    "assets": ["LINK"],
+    "seed": 42,
+    "train": { "learning_rate": 0.0001, ... }
+  }
+}
+```
+
+**Достаточно указать только путь к checkpoint:**
+```bash
+python -m src.predict single --input_path data.csv --output_path pred.json \
+    --checkpoint outputs/model/checkpoints/latest
+```
+Все параметры (`window_size`, `trade_sizes`, `n_actions`) загружаются автоматически!
 
 #### Два режима работы:
 
@@ -759,6 +857,195 @@ head preds.csv       # Batch mode
 - MLflow артефакты
 - Промежуточные данные (используйте volume mounting)
 - Jupyter notebooks
+
+---
+
+## 🌐 TorchServe: Онлайн-сервис для инференса
+
+### Обзор
+
+TorchServe предоставляет REST API для реального времени предсказаний. Сервис автоматически масштабируется и поддерживает мониторинг.
+
+### Структура `serve/`
+
+```
+serve/
+├── handler.py          # Кастомный обработчик (импортирует из pipelines/)
+├── export_model.py     # Скрипт экспорта модели из outputs/
+├── Dockerfile          # Docker образ с полным проектом
+├── config.properties   # Конфигурация TorchServe
+├── sample_input.json   # Пример входных данных
+├── build.sh            # Скрипт сборки (экспорт + Docker build)
+├── test_service.sh     # Скрипт тестирования
+└── model-store/
+    └── a2c-trading.mar # Архив модели
+```
+
+**Принцип**: 
+1. **Код модели** - импортируется из `pipelines/rl_agent_policy/models/` (без дублирования)
+2. **Конфигурация** - загружается из checkpoint'а (не из `conf/`), что гарантирует точное воспроизведение
+
+**Checkpoint содержит ВСЁ необходимое для инференса:**
+```json
+{
+  "step": 1125,
+  "episode": 9,
+  "config": {
+    "window_size": 30,
+    "trade_sizes": [0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4],
+    "n_features": 39,
+    "n_actions": 15,
+    "assets": ["LINK"],
+    "seed": 42,
+    ...
+  }
+}
+```
+
+**Содержимое .mar архива**:
+- `model.pt` - веса модели из checkpoint
+- `config.json` - параметры из conf/ + метаданные эксперимента
+- `handler.py` - обработчик запросов
+
+### Сборка и запуск
+
+**Всё что нужно - указать путь к checkpoint!** Конфигурация загружается автоматически:
+
+```bash
+# Шаг 1: Экспортируйте модель (конфиг берётся из checkpoint)
+python serve/export_model.py --checkpoint outputs/model/checkpoints/latest
+# или любой другой checkpoint:
+python serve/export_model.py --checkpoint outputs/2026-01-10/a2c_train/checkpoints/1125
+
+# Шаг 2: Соберите Docker образ
+docker build -t a2c-serve:v1 -f serve/Dockerfile serve/
+
+# Шаг 3: Запустите сервис
+docker run -d \
+    -p 8080:8080 \
+    -p 8081:8081 \
+    -p 8082:8082 \
+    --name a2c-serve \
+    a2c-serve:v1
+
+# Или используйте build.sh для автоматизации
+./serve/build.sh
+```
+
+### REST API
+
+#### Endpoints
+
+| Порт | Endpoint | Описание |
+|------|----------|----------|
+| 8080 | `/predictions/a2c-trading` | Inference API |
+| 8080 | `/ping` | Health check |
+| 8081 | `/models` | Management API |
+| 8082 | `/metrics` | Prometheus метрики |
+
+#### Формат запроса
+
+```bash
+# Запрос с JSON файлом
+curl -X POST http://localhost:8080/predictions/a2c-trading \
+    -H "Content-Type: application/json" \
+    -T serve/sample_input.json
+
+# Запрос с inline JSON
+curl -X POST http://localhost:8080/predictions/a2c-trading \
+    -H "Content-Type: application/json" \
+    -d '{
+      "window": [
+        {"open": 16.55, "high": 16.80, "low": 16.40, "close": 16.65, "volume": 13000000},
+        ... (30 rows total)
+      ]
+    }'
+```
+
+#### Формат входных данных
+
+```json
+{
+  "window": [
+    {"open": 13.50, "high": 13.80, "low": 13.20, "close": 13.65, "volume": 5000000},
+    {"open": 13.65, "high": 14.00, "low": 13.50, "close": 13.90, "volume": 5500000},
+    ...
+    // Минимум 30 записей (window_size)
+  ]
+}
+```
+
+#### Формат ответа
+
+```json
+{
+  "action_id": 11,
+  "signal": "SELL",
+  "position_size": 0.1,
+  "confidence": 0.72,
+  "probabilities": {
+    "hold": 0.15,
+    "buy": 0.13,
+    "sell": 0.72
+  }
+}
+```
+
+### Тестирование сервиса
+
+```bash
+# Health check
+curl http://localhost:8080/ping
+
+# Получить информацию о модели
+curl http://localhost:8081/models/a2c-trading
+
+# Запустить тестовый скрипт
+./serve/test_service.sh
+
+# Просмотр логов
+docker logs -f a2c-serve
+
+# Метрики (Prometheus формат)
+curl http://localhost:8082/metrics
+```
+
+### Конфигурация сервиса
+
+Файл `serve/config.properties`:
+
+```properties
+# Порты
+inference_address=http://0.0.0.0:8080
+management_address=http://0.0.0.0:8081
+metrics_address=http://0.0.0.0:8082
+
+# Настройки воркеров
+default_workers_per_model=1
+job_queue_size=100
+
+# Таймауты
+default_response_timeout=120
+
+# CORS (для веб-клиентов)
+cors_allowed_origin=*
+```
+
+### Масштабирование
+
+```bash
+# Добавить воркеров через Management API
+curl -X PUT "http://localhost:8081/models/a2c-trading?min_worker=2&max_worker=4"
+
+# Для production: используйте Kubernetes с HPA
+```
+
+### Остановка сервиса
+
+```bash
+docker stop a2c-serve
+docker rm a2c-serve
+```
 
 ---
 

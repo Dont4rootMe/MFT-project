@@ -123,7 +123,8 @@ class A2CTrainer:
                  output_dir, 
                  max_episode_length,
                  config: Optional[A2CConfig] = None,
-                 use_accelerate: Optional[bool | None] = None 
+                 use_accelerate: Optional[bool | None] = None,
+                 full_config: Optional[dict] = None  # Full Hydra config for checkpoint
     ):
         self.agent = agent
         self.train_env = train_env
@@ -131,6 +132,7 @@ class A2CTrainer:
         self.cfg = config or A2CConfig()
         self.output_dir = output_dir
         self.max_episode_length = max_episode_length
+        self.full_config = full_config or {}  # Store full config for checkpoint
         
         # Determine whether to use accelerate or manual device management
         self.use_accelerate = self._should_use_accelerate(use_accelerate)
@@ -343,8 +345,14 @@ class A2CTrainer:
             if hasattr(self.agent, "scheduler"):
                 torch.save(self.agent.scheduler.state_dict(), trainer_dir / "scheduler.pt")
             
+        # Save metadata including full config for reproducibility
+        meta = {
+            "step": step,
+            "episode": episode,
+            "config": self.full_config  # Full config for inference
+        }
         with open(ckpt_dir / "meta.json", "w") as f:
-            json.dump({"step": step, "episode": episode}, f)
+            json.dump(meta, f, indent=2, default=str)
 
         latest_dir = self.ckpt_root / "latest"
         if latest_dir.is_symlink():

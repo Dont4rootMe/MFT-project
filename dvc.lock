@@ -69,12 +69,12 @@ stages:
       nfiles: 26
     - path: pipelines/rl_agent_policy/train/a2c.py
       hash: md5
-      md5: 20ccc5a3b46d6b31fe13f45184ecf7e7
-      size: 22861
+      md5: 2a800c9b181358683ffe0e483a1f404f
+      size: 23242
     - path: pipelines/rl_agent_policy/trainer.py
       hash: md5
-      md5: 59d840c2fbbbd44b5a31dd3afc86a01d
-      size: 13843
+      md5: 913106b9c0d6dc2af7141444756e4a72
+      size: 15108
     params:
       conf/a2c_trainer.yaml:
         env.initial_cash: 10000
@@ -91,9 +91,9 @@ stages:
     outs:
     - path: outputs/model
       hash: md5
-      md5: d12b7c729106ce7f857d3065feb6b7dd.dir
-      size: 9281581
-      nfiles: 156
+      md5: 6e8cb3c4eb79961c92e75467ad042af4.dir
+      size: 9982725
+      nfiles: 168
   evaluate:
     cmd: python pipelines/dvc/evaluate.py --checkpoint 
       outputs/model/checkpoints/latest --config conf/a2c_trainer.yaml --output 

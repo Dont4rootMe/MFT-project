@@ -41,14 +41,53 @@ from dataclasses import dataclass
 
 @dataclass
 class InferenceConfig:
-    """Configuration loaded from training config for inference."""
+    """Configuration loaded from checkpoint for inference."""
     window_size: int
     trade_sizes: List[float]
     action_scheme_name: str
+    n_features: int = 39
+    
+    @classmethod
+    def from_checkpoint(cls, checkpoint_path: str) -> 'InferenceConfig':
+        """
+        Load inference config from checkpoint meta.json.
+        
+        This is the preferred method - ensures inference uses exact same
+        config as training.
+        """
+        checkpoint_path = Path(checkpoint_path)
+        meta_path = checkpoint_path / 'meta.json'
+        
+        if not meta_path.exists():
+            raise FileNotFoundError(
+                f"Checkpoint meta.json not found at {meta_path}. "
+                f"Please use a checkpoint that contains full config."
+            )
+        
+        with open(meta_path, 'r') as f:
+            meta = json.load(f)
+        
+        # Check if checkpoint has full config
+        if 'config' not in meta:
+            # Fallback to Hydra config for old checkpoints
+            print("   ⚠️ Checkpoint doesn't contain full config, using Hydra config")
+            return cls.from_hydra_config()
+        
+        config = meta['config']
+        
+        return cls(
+            window_size=config.get('window_size', 30),
+            trade_sizes=config.get('trade_sizes', [0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4]),
+            action_scheme_name=config.get('action_scheme_name', 'simple'),
+            n_features=config.get('n_features', 39)
+        )
     
     @classmethod
     def from_hydra_config(cls, config_dir: str = None) -> 'InferenceConfig':
-        """Load inference config from Hydra configuration."""
+        """
+        Fallback: Load inference config from Hydra configuration.
+        Use from_checkpoint() when possible for exact reproducibility.
+        """
         from hydra import initialize_config_dir, compose
         from omegaconf import OmegaConf
         
@@ -58,7 +97,6 @@ class InferenceConfig:
         with initialize_config_dir(version_base=None, config_dir=config_dir):
             cfg = compose(config_name='a2c_trainer')
         
-        # Extract parameters from config
         window_size = cfg.env.get('window_size', 30)
         
         action_cfg = cfg.get('action_scheme', {})
@@ -335,15 +373,20 @@ def run_single_prediction(
     # Minimum rows needed for stable feature engineering (rolling windows, etc.)
     MIN_ROWS_FOR_FE = 100
     
-    # Load configuration from training config
-    print(f"⚙️  Loading configuration...")
-    inference_cfg = InferenceConfig.from_hydra_config()
+    # Load configuration from checkpoint (preferred) or fallback to Hydra
+    print(f"⚙️  Loading configuration from checkpoint...")
+    try:
+        inference_cfg = InferenceConfig.from_checkpoint(checkpoint_path)
+        print(f"   ✓ Loaded config from checkpoint")
+    except (FileNotFoundError, KeyError) as e:
+        print(f"   ⚠️ Checkpoint config not found, using Hydra config: {e}")
+        inference_cfg = InferenceConfig.from_hydra_config()
     
     # Use config window_size if not specified
     if window_size is None:
         window_size = inference_cfg.window_size
     
-    print(f"   Window size: {window_size} (from config)")
+    print(f"   Window size: {window_size}")
     print(f"   Trade sizes: {inference_cfg.trade_sizes}")
     print(f"   Action scheme: {inference_cfg.action_scheme_name}")
     print(f"   N actions: {inference_cfg.n_actions}")
@@ -471,15 +514,20 @@ def run_batch_prediction(
     Returns:
         pd.DataFrame: All predictions
     """
-    # Load configuration from training config
-    print(f"⚙️  Loading configuration...")
-    inference_cfg = InferenceConfig.from_hydra_config()
+    # Load configuration from checkpoint (preferred) or fallback to Hydra
+    print(f"⚙️  Loading configuration from checkpoint...")
+    try:
+        inference_cfg = InferenceConfig.from_checkpoint(checkpoint_path)
+        print(f"   ✓ Loaded config from checkpoint")
+    except (FileNotFoundError, KeyError) as e:
+        print(f"   ⚠️ Checkpoint config not found, using Hydra config: {e}")
+        inference_cfg = InferenceConfig.from_hydra_config()
     
     # Use config window_size if not specified
     if window_size is None:
         window_size = inference_cfg.window_size
     
-    print(f"   Window size: {window_size} (from config)")
+    print(f"   Window size: {window_size}")
     print(f"   Trade sizes: {inference_cfg.trade_sizes}")
     print(f"   N actions: {inference_cfg.n_actions}")
     
